@@ -191,6 +191,7 @@ function readAll(fd, buffer, offset, length, position, callback) {
     fs.read(fd, buffer, offset, length, position, function(err, bytesRead) {
       if (err) return callback(err);
       if (bytesRead >= length) return callback(null, buffer);
+      if (bytesRead === 0) return callback("unexpected EOF");
       offset += bytesRead;
       length -= bytesRead;
       position += bytesRead;
