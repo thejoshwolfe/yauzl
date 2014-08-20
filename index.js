@@ -5,7 +5,7 @@ var FdSlicer = require("fd-slicer");
 // cdr - Central Directory Record
 // eocdr - End of Central Directory Record
 
-open("test/cygwin-info-zip.zip", function(err, zipfile) {
+open("test/deflate.zip", function(err, zipfile) {
   if (err) throw err;
   console.log("entries:", zipfile.entriesRemaining());
   keepReading();
