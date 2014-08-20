@@ -1,4 +1,5 @@
 var fs = require("fs");
+var zlib = require("zlib");
 var FdSlicer = require("fd-slicer");
 
 // cd - Central Directory
@@ -227,15 +228,22 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
     // 30 - File name
     // 30+n - Extra field
     var localFileHeaderEnd = entry.relativeOffsetOfLocalHeader + buffer.length + fileNameLength + extraFieldLength;
+    var filterStream = null;
     if (entry.compressionMethod === 0) {
       // 0 - The file is stored (no compression)
+    } else if (entry.compressionMethod === 8) {
+      // 8 - The file is Deflated
+      filterStream = zlib.createInflate();
     } else {
       return callback(new Error("unsupported compression method: " + entry.compressionMethod));
     }
     var fileDataStart = localFileHeaderEnd;
     var fileDataEnd = fileDataStart + entry.compressedSize;
-    var readStream = self.fdSlicer.createReadStream({start: fileDataStart, end: fileDataEnd});
-    callback(null, readStream);
+    var stream = self.fdSlicer.createReadStream({start: fileDataStart, end: fileDataEnd});
+    if (filterStream != null) {
+      stream = stream.pipe(filterStream);
+    }
+    callback(null, stream);
   });
 };
 
