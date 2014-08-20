@@ -1,17 +1,26 @@
 var fs = require("fs");
+var FdSlicer = require("fd-slicer");
 
 // cd - Central Directory
 // cdr - Central Directory Record
 // eocdr - End of Central Directory Record
 
 open("test/cygwin-info-zip.zip", function(err, zipfile) {
-  if (err) throw new Error(err);
-  console.log(zipfile.comment);
-  zipfile.readEntries(function(err, entries) {
-    if (err) throw new Error(err);
-    console.log(entries);
-    zipfile.close();
-  });
+  if (err) throw err;
+  console.log("entries:", zipfile.entriesRemaining());
+  keepReading();
+  function keepReading() {
+    if (zipfile.entriesRemaining() === 0) return;
+    zipfile.readEntry(function(err, entry) {
+      if (err) throw err;
+      console.log(entry);
+      zipfile.openReadStream(entry, function(err, readStream) {
+        if (err) throw err;
+        readStream.pipe(process.stdout);
+      });
+      keepReading();
+    });
+  }
 });
 
 module.exports.open = open;
@@ -19,7 +28,10 @@ function open(path, callback) {
   if (callback == null) callback = defaultCallback;
   fs.open(path, "r", function(err, fd) {
     if (err) return callback(err);
-    fopen(fd, callback);
+    fopen(fd, function(err, zipfile) {
+      if (err) fs.close(fd, defaultCallback);
+      callback(err, zipfile);
+    });
   });
 }
 
@@ -38,7 +50,8 @@ function fopen(fd, callback) {
     var bufferSize = Math.min(eocdrWithoutCommentSize + maxCommentSize, stats.size);
     var buffer = new Buffer(bufferSize);
     var bufferReadStart = stats.size - buffer.length;
-    readAll(fd, buffer, 0, bufferSize, bufferReadStart, function(err) {
+    readNoEof(fd, buffer, 0, bufferSize, bufferReadStart, function(err) {
+      if (err) return callback(err);
       for (var i = bufferSize - eocdrWithoutCommentSize; i >= 0; i -= 1) {
         if (buffer.readUInt32LE(i) !== 0x06054b50) continue;
         verbose("found eocdr at offset: " + (bufferReadStart + i));
@@ -47,7 +60,7 @@ function fopen(fd, callback) {
         // 0 - End of central directory signature = 0x06054b50
         // 4 - Number of this disk
         var diskNumber = eocdrBuffer.readUInt16LE(4);
-        if (diskNumber !== 0) return callback("multi-disk zip files are not supported: found disk number: " + diskNumber);
+        if (diskNumber !== 0) return callback(new Error("multi-disk zip files are not supported: found disk number: " + diskNumber));
         // 6 - Disk where central directory starts
         // 8 - Number of central directory records on this disk
         // 10 - Total number of central directory records
@@ -59,7 +72,7 @@ function fopen(fd, callback) {
         var commentLength = eocdrBuffer.readUInt16LE(20);
         var expectedCommentLength = eocdrBuffer.length - eocdrWithoutCommentSize;
         if (commentLength !== expectedCommentLength) {
-          return callback("invalid comment length. expected: " + expectedCommentLength + ". found: " + commentLength);
+          return callback(new Error("invalid comment length. expected: " + expectedCommentLength + ". found: " + commentLength));
         }
         // 22 - Comment
         var comment = new Buffer(commentLength);
@@ -68,20 +81,22 @@ function fopen(fd, callback) {
         eocdrBuffer.copy(comment, 0, 22, eocdrBuffer.length);
         return callback(null, new ZipFile(fd, cdOffset, entryCount, comment));
       }
-      callback("end of central directory record signature not found");
+      callback(new Error("end of central directory record signature not found"));
     });
   });
 }
 
 function ZipFile(fd, cdOffset, entryCount, comment) {
-  this.fd = fd;
+  this.fdSlicer = new FdSlicer(fd);
   this.readEntryCursor = cdOffset;
   this.entryCount = entryCount;
   this.comment = comment;
+  this.entriesRead = 0;
+  this.isReadingEntry = false;
 }
 ZipFile.prototype.close = function(callback) {
   if (callback == null) callback = defaultCallback;
-  fs.close(this.fd, callback);
+  fs.close(this.fdSlicer.fd, callback);
 };
 ZipFile.prototype.readEntries = function(callback) {
   var self = this;
@@ -92,24 +107,29 @@ ZipFile.prototype.readEntries = function(callback) {
     self.readEntry(function(err, entry) {
       if (err) return callback(err);
       entries.push(entry);
-      if (entries.length === self.entryCount) {
-        callback(null, entries);
-      } else {
+      if (self.entriesRemaining() > 0) {
         keepReading();
+      } else {
+        callback(null, entries);
       }
     });
   }
 };
+ZipFile.prototype.entriesRemaining = function() {
+  return this.entryCount - this.entriesRead;
+};
 ZipFile.prototype.readEntry = function(callback) {
   var self = this;
+  if (self.isReadingEntry) throw new Error("readEntry already in progress");
+  self.isReadingEntry = true;
   if (callback == null) callback = defaultCallback;
   var buffer = new Buffer(46);
-  readAll(this.fd, buffer, 0, buffer.length, this.readEntryCursor, function(err) {
+  readFdSlicerNoEof(this.fdSlicer, buffer, 0, buffer.length, this.readEntryCursor, function(err) {
     if (err) return callback(err);
     var entry = {};
     // 0 - Central directory file header signature
     var signature = buffer.readUInt32LE(0);
-    if (signature !== 0x02014b50) return callback("invalid central directory file header signature: 0x" + signature.toString(16));
+    if (signature !== 0x02014b50) return callback(new Error("invalid central directory file header signature: 0x" + signature.toString(16)));
     // 4 - Version made by
     entry.versionMadeBy = buffer.readUInt16LE(4);
     // 6 - Version needed to extract (minimum)
@@ -145,7 +165,7 @@ ZipFile.prototype.readEntry = function(callback) {
     self.readEntryCursor += 46;
 
     buffer = new Buffer(entry.fileNameLength + entry.extraFieldLength + entry.fileCommentLength);
-    readAll(self.fd, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
+    readFdSlicerNoEof(self.fdSlicer, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
       if (err) return callback(err);
       // 46 - File name
       var encoding = entry.generalPurposeBitFlag & 0x800 ? "utf8" : "ascii";
@@ -175,9 +195,47 @@ ZipFile.prototype.readEntry = function(callback) {
       entry.fileComment = buffer.toString(encoding, fileCommentStart, fileCommentStart + entry.fileCommentLength);
 
       self.readEntryCursor += buffer.length;
+      self.entriesRead += 1;
+      self.isReadingEntry = false;
 
       callback(null, entry);
     });
+  });
+};
+
+ZipFile.prototype.openReadStream = function(entry, callback) {
+  var self = this;
+  var buffer = new Buffer(30);
+  readFdSlicerNoEof(self.fdSlicer, buffer, 0, buffer.length, entry.relativeOffsetOfLocalHeader, function(err) {
+    if (err) return callback(err);
+    // 0 - Local file header signature = 0x04034b50
+    var signature = buffer.readUInt32LE(0);
+    if (signature !== 0x04034b50) callback(new Error("invalid local file header signature: 0x" + signature.toString(16)));
+    // all this should be redundant
+    // 4 - Version needed to extract (minimum)
+    // 6 - General purpose bit flag
+    // 8 - Compression method
+    // 10 - File last modification time
+    // 12 - File last modification date
+    // 14 - CRC-32
+    // 18 - Compressed size
+    // 22 - Uncompressed size
+    // 26 - File name length (n)
+    var fileNameLength = buffer.readUInt16LE(26);
+    // 28 - Extra field length (m)
+    var extraFieldLength = buffer.readUInt16LE(28);
+    // 30 - File name
+    // 30+n - Extra field
+    var localFileHeaderEnd = entry.relativeOffsetOfLocalHeader + buffer.length + fileNameLength + extraFieldLength;
+    if (entry.compressionMethod === 0) {
+      // 0 - The file is stored (no compression)
+    } else {
+      return callback(new Error("unsupported compression method: " + entry.compressionMethod));
+    }
+    var fileDataStart = localFileHeaderEnd;
+    var fileDataEnd = fileDataStart + entry.compressedSize;
+    var readStream = self.fdSlicer.createReadStream({start: fileDataStart, end: fileDataEnd});
+    callback(null, readStream);
   });
 };
 
@@ -185,20 +243,20 @@ function verbose(message) {
   console.log(message);
 }
 
-function readAll(fd, buffer, offset, length, position, callback) {
-  keepReading();
-  function keepReading() {
-    fs.read(fd, buffer, offset, length, position, function(err, bytesRead) {
-      if (err) return callback(err);
-      if (bytesRead >= length) return callback(null, buffer);
-      if (bytesRead === 0) return callback("unexpected EOF");
-      offset += bytesRead;
-      length -= bytesRead;
-      position += bytesRead;
-      keepReading();
-    });
-  }
+function readNoEof(fd, buffer, offset, length, position, callback) {
+  fs.read(fd, buffer, offset, length, position, function(err, bytesRead) {
+    if (err) return callback(err);
+    if (bytesRead < length) return callback(new Error("unexpected EOF"));
+    callback(null, buffer);
+  });
+}
+function readFdSlicerNoEof(fdSlicer, buffer, offset, length, position, callback) {
+  fdSlicer.read(buffer, offset, length, position, function(err, bytesRead) {
+    if (err) return callback(err);
+    if (bytesRead < length) return callback(new Error("unexpected EOF"));
+    callback(null, buffer);
+  });
 }
 function defaultCallback(err) {
-  if (err) throw new Error(err);
+  if (err) throw err;
 }

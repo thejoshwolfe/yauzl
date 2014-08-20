@@ -18,5 +18,8 @@
   "bugs": {
     "url": "https://github.com/thejoshwolfe/yauzl/issues"
   },
-  "homepage": "https://github.com/thejoshwolfe/yauzl"
+  "homepage": "https://github.com/thejoshwolfe/yauzl",
+  "dependencies": {
+    "fd-slicer": "^0.1.0"
+  }
 }
