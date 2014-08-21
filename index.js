@@ -6,24 +6,6 @@ var FdSlicer = require("fd-slicer");
 // cdr - Central Directory Record
 // eocdr - End of Central Directory Record
 
-open("test/deflate.zip", function(err, zipfile) {
-  if (err) throw err;
-  console.log("entries:", zipfile.entriesRemaining());
-  keepReading();
-  function keepReading() {
-    if (zipfile.entriesRemaining() === 0) return;
-    zipfile.readEntry(function(err, entry) {
-      if (err) throw err;
-      console.log(entry);
-      zipfile.openReadStream(entry, function(err, readStream) {
-        if (err) throw err;
-        readStream.pipe(process.stdout);
-      });
-      keepReading();
-    });
-  }
-});
-
 module.exports.open = open;
 function open(path, callback) {
   if (callback == null) callback = defaultCallback;
@@ -44,8 +26,8 @@ function fopen(fd, callback) {
     verbose("searching backwards for the eocdr signature");
     // the last field of the eocdr is a variable-length comment.
     // the comment size is encoded in a 2-byte field in the eocdr, which we can't find without trudging backwards through the comment to find it.
-    // as a consequence of this design decision, it's possible to have ambiguous zip file metadata if, for example, a coherent eocdr was in the comment.
-    // we search backwards for the first eocdr signature, and hope that whoever made the zip file was smart enough to forbid the eocdr signature in the comment.
+    // as a consequence of this design decision, it's possible to have ambiguous zip file metadata if a coherent eocdr was in the comment.
+    // we search backwards for a eocdr signature, and hope that whoever made the zip file was smart enough to forbid the eocdr signature in the comment.
     var eocdrWithoutCommentSize = 22;
     var maxCommentSize = 0x10000; // 2-byte size
     var bufferSize = Math.min(eocdrWithoutCommentSize + maxCommentSize, stats.size);
