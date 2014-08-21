@@ -211,7 +211,7 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
     if (err) return callback(err);
     // 0 - Local file header signature = 0x04034b50
     var signature = buffer.readUInt32LE(0);
-    if (signature !== 0x04034b50) callback(new Error("invalid local file header signature: 0x" + signature.toString(16)));
+    if (signature !== 0x04034b50) return callback(new Error("invalid local file header signature: 0x" + signature.toString(16)));
     // all this should be redundant
     // 4 - Version needed to extract (minimum)
     // 6 - General purpose bit flag
@@ -233,7 +233,7 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
       // 0 - The file is stored (no compression)
     } else if (entry.compressionMethod === 8) {
       // 8 - The file is Deflated
-      filterStream = zlib.createInflate();
+      filterStream = zlib.createInflateRaw();
     } else {
       return callback(new Error("unsupported compression method: " + entry.compressionMethod));
     }
