@@ -17,6 +17,6 @@
   },
   "homepage": "https://github.com/thejoshwolfe/yauzl",
   "dependencies": {
-    "fd-slicer": "~0.2.0"
+    "fd-slicer": "~0.2.1"
   }
 }
