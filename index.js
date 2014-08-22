@@ -24,7 +24,7 @@ function fopen(fd, callback) {
   if (callback == null) callback = defaultCallback;
   fs.fstat(fd, function(err, stats) {
     if (err) return callback(err);
-    verbose("searching backwards for the eocdr signature");
+    // search backwards for the eocdr signature.
     // the last field of the eocdr is a variable-length comment.
     // the comment size is encoded in a 2-byte field in the eocdr, which we can't find without trudging backwards through the comment to find it.
     // as a consequence of this design decision, it's possible to have ambiguous zip file metadata if a coherent eocdr was in the comment.
@@ -38,7 +38,7 @@ function fopen(fd, callback) {
       if (err) return callback(err);
       for (var i = bufferSize - eocdrWithoutCommentSize; i >= 0; i -= 1) {
         if (buffer.readUInt32LE(i) !== 0x06054b50) continue;
-        verbose("found eocdr at offset: " + (bufferReadStart + i));
+        // found eocdr
         var eocdrBuffer = buffer.slice(i);
 
         // 0 - End of central directory signature = 0x06054b50
@@ -229,10 +229,6 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
     callback(null, stream);
   });
 };
-
-function verbose(message) {
-  console.log(message);
-}
 
 function readNoEof(fd, buffer, offset, length, position, callback) {
   fs.read(fd, buffer, offset, length, position, function(err, bytesRead) {
