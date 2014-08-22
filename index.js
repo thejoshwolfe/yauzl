@@ -2,11 +2,13 @@ var fs = require("fs");
 var zlib = require("zlib");
 var FdSlicer = require("fd-slicer");
 
+exports.open = open;
+exports.fopen = fopen;
+
 // cd - Central Directory
 // cdr - Central Directory Record
 // eocdr - End of Central Directory Record
 
-module.exports.open = open;
 function open(path, callback) {
   if (callback == null) callback = defaultCallback;
   fs.open(path, "r", function(err, fd) {
@@ -18,7 +20,6 @@ function open(path, callback) {
   });
 }
 
-module.exports.fopen = fopen;
 function fopen(fd, callback) {
   if (callback == null) callback = defaultCallback;
   fs.fstat(fd, function(err, stats) {
