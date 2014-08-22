@@ -107,21 +107,21 @@ Refer to the zip file specification for their type and meaning.
 
 These fields are numbers:
 
- * `versionMadeBy` : buffer.readUInt16LE(4);
- * `versionNeededToExtract` : buffer.readUInt16LE(6);
- * `generalPurposeBitFlag` : buffer.readUInt16LE(8);
- * `compressionMethod` : buffer.readUInt16LE(10);
- * `lastModFileTime` : buffer.readUInt16LE(12);
- * `lastModFileDate` : buffer.readUInt16LE(14);
- * `crc32` : buffer.readUInt32LE(16);
- * `compressedSize` : buffer.readUInt32LE(20);
- * `uncompressedSize` : buffer.readUInt32LE(24);
- * `fileNameLength` : buffer.readUInt16LE(28);
- * `extraFieldLength` : buffer.readUInt16LE(30);
- * `fileCommentLength` : buffer.readUInt16LE(32);
- * `internalFileAttributes` : buffer.readUInt16LE(36);
- * `externalFileAttributes` : buffer.readUInt32LE(38);
- * `relativeOffsetOfLocalHeader` : buffer.readUInt32LE(42);
+ * `versionMadeBy`
+ * `versionNeededToExtract`
+ * `generalPurposeBitFlag`
+ * `compressionMethod`
+ * `lastModFileTime`
+ * `lastModFileDate`
+ * `crc32`
+ * `compressedSize`
+ * `uncompressedSize`
+ * `fileNameLength`
+ * `extraFieldLength`
+ * `fileCommentLength`
+ * `internalFileAttributes`
+ * `externalFileAttributes`
+ * `relativeOffsetOfLocalHeader`
 
 #### fileName
 
@@ -138,3 +138,77 @@ None of the extra fields are considered significant by this library.
 #### comment
 
 `String` decoded with the same charset as used for `fileName`.
+
+## Limitations
+
+### Default Charset Should Be CP437
+
+Currently, the default charset is `ascii`, but it should be `cp473`.
+
+### No Multi-Disk Archive Support
+
+This library does not support multi-disk zip files.
+This API was intended for a zip file to span multiple floppy disks, which probably never happens now.
+If the "number of this disk" field in the End of Central Directory Record is not `0`,
+the `open` or `fopen` `callback` will receive an `err`.
+By extension the following zip file fields are ignored by this library and not provided to clients:
+
+ * Disk where central directory starts
+ * Number of central directory records on this disk
+ * Disk number where file starts
+
+### No Encryption Support
+
+Currently, the presence of encryption is not even checked,
+and encrypted zip files will cause undefined behavior.
+
+### Local File Headers Are Ignored
+
+Many unzip libraries mistakenly read the Local File Header data in zip files.
+This data is officially defined to be redundant with the Central Directory information,
+and is not to be trusted.
+There may be conflicts between the Central Directory information and the Local File Header,
+but the Local File Header is always ignored.
+
+### No CRC-32 Checking
+
+This library provides the `crc32` field of `Entry` objects read from the Central Directory.
+However, this field is not used for anything in this library.
+
+### No Date/Time Conversion
+
+The `lastModFileTime` and `lastModFileDate` fields of `Entry` objects
+probably need to be interpreted according to the zip file spec to make them useful.
+This library provides no support for this.
+
+### versionNeededToExtract Is Ignored
+
+The field `versionNeededToExtract` is ignored,
+because this library doesn't support the complete zip file spec at any version,
+
+### No Support For Obscure Compression Methods
+
+Regarding the `compressionMethod` field of `Entry` objects,
+only method `0` (stored with no compression)
+and method `8` (deflated) are supported.
+Any of the other 15 official methods will cause the `openReadStream` `callback` to receive an `err`.
+
+### No ZIP64 Support
+
+A ZIP64 file will probably cause undefined behavior.
+
+### Data Descriptors Are Ignored
+
+There may or may not be Data Descriptor sections in a zip file.
+This library provides no support for finding or interpreting them.
+
+### Archive Extra Data Record Is Ignored
+
+There may or may not be an Archive Extra Data Record section in a zip file.
+This library provides no support for finding or interpreting it.
+
+### No Language Encoding Flag Support
+
+Zip files officially support charset encodings other than CP437 and UTF-8,
+but the zip file spec does not specify how it works.
+This library makes no attempt to interpret the Language Encoding Flag.
