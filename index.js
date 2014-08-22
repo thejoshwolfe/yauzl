@@ -5,6 +5,7 @@ var FdSlicer = require("fd-slicer");
 exports.open = open;
 exports.fopen = fopen;
 exports.ZipFile = ZipFile;
+exports.Entry = Entry;
 
 // cd - Central Directory
 // cdr - Central Directory Record
@@ -109,7 +110,7 @@ ZipFile.prototype.readEntry = function(callback) {
   var buffer = new Buffer(46);
   readFdSlicerNoEof(this.fdSlicer, buffer, 0, buffer.length, this.readEntryCursor, function(err) {
     if (err) return callback(err);
-    var entry = {};
+    var entry = new Entry();
     // 0 - Central directory file header signature
     var signature = buffer.readUInt32LE(0);
     if (signature !== 0x02014b50) return callback(new Error("invalid central directory file header signature: 0x" + signature.toString(16)));
@@ -228,6 +229,9 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
     callback(null, stream);
   });
 };
+
+function Entry() {
+}
 
 function readNoEof(fd, buffer, offset, length, position, callback) {
   fs.read(fd, buffer, offset, length, position, function(err, bytesRead) {

@@ -92,6 +92,49 @@ You must not call this function before any previous call to this function comple
 
 TODO: really? This API is super sketchy.
 
+#### entryCount
+
+`Number`. Total number of central directory records.
+
+#### comment
+
+`Buffer`. TODO: decode with `cp473`.
+
 ### class Entry
 
-TODO: document (and make this an actual class or whatever).
+Objects of this class represent Central Directory Records.
+Refer to the zip file specification for their type and meaning.
+
+These fields are numbers:
+
+ * `versionMadeBy` : buffer.readUInt16LE(4);
+ * `versionNeededToExtract` : buffer.readUInt16LE(6);
+ * `generalPurposeBitFlag` : buffer.readUInt16LE(8);
+ * `compressionMethod` : buffer.readUInt16LE(10);
+ * `lastModFileTime` : buffer.readUInt16LE(12);
+ * `lastModFileDate` : buffer.readUInt16LE(14);
+ * `crc32` : buffer.readUInt32LE(16);
+ * `compressedSize` : buffer.readUInt32LE(20);
+ * `uncompressedSize` : buffer.readUInt32LE(24);
+ * `fileNameLength` : buffer.readUInt16LE(28);
+ * `extraFieldLength` : buffer.readUInt16LE(30);
+ * `fileCommentLength` : buffer.readUInt16LE(32);
+ * `internalFileAttributes` : buffer.readUInt16LE(36);
+ * `externalFileAttributes` : buffer.readUInt32LE(38);
+ * `relativeOffsetOfLocalHeader` : buffer.readUInt32LE(42);
+
+#### fileName
+
+`String`.
+The bytes in the file are decoded with `utf8` if `generalPurposeBitFlag & 0x800`, as per the spec.
+Otherwise, the file name is decoded with `ascii`, which is technically not correct.
+The correct default encoding is `cp473`.
+
+#### extraFields
+
+`Array` with each entry in the form `{id: id, data: data}`, where `id` is a `Number` and `data` is a `Buffer`.
+None of the extra fields are considered significant by this library.
+
+#### comment
+
+`String` decoded with the same charset as used for `fileName`.
