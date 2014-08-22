@@ -86,17 +86,15 @@ ZipFile.prototype.close = function(callback) {
 ZipFile.prototype.readEntries = function(callback) {
   var self = this;
   if (callback == null) callback = defaultCallback;
-  var entries = [];
-  keepReading();
+  self.entries = [];
+  // setImmediate here to make sure callback is called asynchronously even if there are 0 entries left.
+  setImmediate(keepReading);
   function keepReading() {
+    if (self.entriesRemaining() === 0) return callback(null, self.entries);
     self.readEntry(function(err, entry) {
       if (err) return callback(err);
-      entries.push(entry);
-      if (self.entriesRemaining() > 0) {
-        keepReading();
-      } else {
-        callback(null, entries);
-      }
+      self.entries.push(entry);
+      keepReading();
     });
   }
 };
