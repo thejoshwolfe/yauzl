@@ -4,6 +4,7 @@ var FdSlicer = require("fd-slicer");
 
 exports.open = open;
 exports.fopen = fopen;
+exports.ZipFile = ZipFile;
 
 // cd - Central Directory
 // cdr - Central Directory Record
