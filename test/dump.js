@@ -10,6 +10,7 @@ paths.forEach(function(path) {
     });
     zipfile.on("entry", function(entry) {
       console.log(entry);
+      if (/\/$/.exec(entry)) return;
       zipfile.openReadStream(entry, function(err, readStream) {
         if (err) throw err;
         readStream.pipe(process.stdout);

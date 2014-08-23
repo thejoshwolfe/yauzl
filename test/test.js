@@ -17,9 +17,19 @@ zipfilePaths.forEach(function(zipfilePath) {
   var expectedPathPrefix = zipfilePath.replace(/\.zip$/, "");
   // TODO: directories, yo.
   var expectedArchiveContents = {};
-  fs.readdirSync(expectedPathPrefix).forEach(function(name) {
-    expectedArchiveContents[name] = fs.readFileSync(path.join(expectedPathPrefix, name));
-  });
+  var DIRECTORY = 1; // not a string
+  recursiveRead(".");
+  function recursiveRead(name) {
+    var realPath = path.join(expectedPathPrefix, name);
+    if (fs.statSync(realPath).isFile()) {
+      expectedArchiveContents[name] = fs.readFileSync(realPath);
+    } else {
+      if (name !== ".") expectedArchiveContents[name] = DIRECTORY;
+      fs.readdirSync(realPath).forEach(function(child) {
+        recursiveRead(path.join(name, child));
+      });
+    }
+  }
   pend.go(function(zipfileCallback) {
     yauzl.open(zipfilePath, function(err, zipfile) {
       if (err) throw err;
@@ -28,31 +38,38 @@ zipfilePaths.forEach(function(zipfilePath) {
       zipfile.on("entry", function(entry) {
         var messagePrefix = zipfilePath + ": " + entry.fileName + ": ";
         entryProcessing.go(function(entryCallback) {
-          var expectedContents = expectedArchiveContents[entry.fileName];
+          var fileNameKey = entry.fileName.replace(/\/$/, "");
+          var expectedContents = expectedArchiveContents[fileNameKey];
           if (expectedContents == null) {
             throw new Error(messagePrefix + "not supposed to exist");
           }
-          delete expectedArchiveContents[entry.fileName];
-          zipfile.openReadStream(entry, function(err, readStream) {
-            if (err) throw err;
-            var buffers = [];
-            readStream.on("data", function(data) {
-              buffers.push(data);
+          delete expectedArchiveContents[fileNameKey];
+          if (entry.fileName !== fileNameKey) {
+            // directory
+            console.log(messagePrefix + "pass");
+            entryCallback();
+          } else {
+            zipfile.openReadStream(entry, function(err, readStream) {
+              if (err) throw err;
+              var buffers = [];
+              readStream.on("data", function(data) {
+                buffers.push(data);
+              });
+              readStream.on("end", function() {
+                var actualContents = Buffer.concat(buffers);
+                // uh. there's no buffer equality check?
+                var equal = actualContents.toString("binary") === expectedContents.toString("binary");
+                if (!equal) {
+                  throw new Error(messagePrefix + "wrong contents");
+                }
+                console.log(messagePrefix + "pass");
+                entryCallback();
+              });
+              readStream.on("error", function(err) {
+                throw err;
+              });
             });
-            readStream.on("end", function() {
-              var actualContents = Buffer.concat(buffers);
-              // uh. there's no buffer equality check?
-              var equal = actualContents.toString("binary") === expectedContents.toString("binary");
-              if (!equal) {
-                throw new Error(messagePrefix + "wrong contents");
-              }
-              console.log(messagePrefix + "pass");
-              entryCallback();
-            });
-            readStream.on("error", function(err) {
-              throw err;
-            });
-          });
+          }
         });
       });
       zipfile.on("end", function() {
