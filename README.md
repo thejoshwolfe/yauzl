@@ -21,8 +21,13 @@ var fs = require("fs");
 yauzl.open("path/to/file.zip", function(err, zipfile) {
   if (err) throw err;
   zipfile.on("entry", function(entry) {
+    if (/\/$/.exec(entry.fileName)) {
+      // directory file names end with '/'
+      return;
+    }
     zipfile.openReadStream(entry, function(err, readStream) {
       if (err) throw err;
+      // ensure parent directory exists, and then:
       readStream.pipe(fs.createWriteStream(entry.fileName));
     });
   });
