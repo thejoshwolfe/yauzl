@@ -6,10 +6,12 @@ var Pend = require("pend");
 var zipfilePaths = fs.readdirSync(__dirname).filter(function(filepath) {
   return /\.zip$/.exec(filepath);
 }).map(function(name) {
-  return path.join(__dirname, name);
+  return path.relative(".", path.join(__dirname, name));
 });
+zipfilePaths.sort();
 
 var pend = new Pend();
+// 1 thing at a time for reproducibility
 pend.max = 1;
 zipfilePaths.forEach(function(zipfilePath) {
   var expectedPathPrefix = zipfilePath.replace(/\.zip$/, "");
@@ -21,15 +23,16 @@ zipfilePaths.forEach(function(zipfilePath) {
   pend.go(function(zipfileCallback) {
     yauzl.open(zipfilePath, function(err, zipfile) {
       if (err) throw err;
-      var zipfilePend = new Pend();
-      zipfilePend.max = 1;
       zipfile.readEntries(function(err, entries) {
         if (err) throw err;
+        var zipfilePend = new Pend();
+        zipfilePend.max = 1;
         entries.forEach(function(entry) {
+          var messagePrefix = zipfilePath + ": " + entry.fileName + ": ";
           zipfilePend.go(function(entryCallback) {
             var expectedContents = expectedArchiveContents[entry.fileName];
             if (expectedContents == null) {
-              throw new Error(zipfilePath + ": " + entry.fileName + ": is not supposed to exist");
+              throw new Error(messagePrefix + "not supposed to exist");
             }
             delete expectedArchiveContents[entry.fileName];
             zipfile.openReadStream(entry, function(err, readStream) {
@@ -43,8 +46,9 @@ zipfilePaths.forEach(function(zipfilePath) {
                 // uh. there's no buffer equality check?
                 var equal = actualContents.toString("binary") === expectedContents.toString("binary");
                 if (!equal) {
-                  throw new Error(zipfilePath + ": " + entry.fileName + ": has wrong contents");
+                  throw new Error(messagePrefix + "wrong contents");
                 }
+                console.log(messagePrefix + "pass");
                 entryCallback();
               });
               readStream.on("error", function(err) {
@@ -53,8 +57,13 @@ zipfilePaths.forEach(function(zipfilePath) {
             });
           });
         });
+        zipfilePend.wait(function() {
+          for (var fileName in expectedArchiveContents) {
+            throw new Error(zipfilePath + ": " + fileName + ": missing file");
+          }
+          zipfileCallback();
+        });
       });
-      zipfilePend.wait(zipfileCallback);
     });
   });
 });
