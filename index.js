@@ -13,18 +13,27 @@ exports.Entry = Entry;
 // cdr - Central Directory Record
 // eocdr - End of Central Directory Record
 
-function open(path, callback) {
+function open(path, options, callback) {
+  if (typeof options === "function") {
+    callback = options;
+    options = null;
+  }
   if (callback == null) callback = defaultCallback;
   fs.open(path, "r", function(err, fd) {
     if (err) return callback(err);
-    fopen(fd, function(err, zipfile) {
+    fopen(fd, options, function(err, zipfile) {
       if (err) fs.close(fd, defaultCallback);
       callback(err, zipfile);
     });
   });
 }
 
-function fopen(fd, callback) {
+function fopen(fd, options, callback) {
+  if (typeof options === "function") {
+    callback = options;
+    options = null;
+  }
+  if (options == null) options = {autoClose: true};
   if (callback == null) callback = defaultCallback;
   fs.fstat(fd, function(err, stats) {
     if (err) return callback(err);

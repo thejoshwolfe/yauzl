@@ -44,11 +44,11 @@ function defaultCallback(err) {
 }
 ```
 
-### open(path, [callback])
+### open(path, [options], [callback])
 
-Calls `fs.open(path, "r")` and gives the `fd` and `callback` to `fopen` below.
+Calls `fs.open(path, "r")` and gives the `fd`, `options`, and `callback` to `fopen` below.
 
-### fopen(fd, [callback])
+### fopen(fd, [options], [callback])
 
 Reads from the fd, which is presumed to be an open .zip file.
 Note that random access is required by the zip file specification,
@@ -76,7 +76,7 @@ Emitted after the last `entry` event has been emitted.
 Note that it is not necessarily safe to call `close` in response to this event.
 There may still be open streams created by `openReadStream`.
 
-#### openReadStream(entry, [callback])
+#### openReadStream(entry, [options], [callback])
 
 `entry` must be an `Entry` object from this `ZipFile`.
 `callback` gets `(err, readStream)`, where `readStream` is a `Readable Stream`.
@@ -86,7 +86,11 @@ the read stream provides the decompressed data.
 #### close([callback])
 
 Calls `fs.close(fd, callback)`.
-This will probably cause problems if there are still open streams created by `openReadStream`.
+If `autoClose` is `true` in the original `open` or `fopen` call,
+this function will be called automatically after every `entry` event has been emitted,
+and after every stream created by `openReadStream` is closed.
+
+Calling this function before the above conditions have been met will probably result in errors.
 
 #### entryCount
 
