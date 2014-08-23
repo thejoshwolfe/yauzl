@@ -16,7 +16,7 @@ Design principles:
 
 ```js
 var yauzl = require("yauzl");
-var fs = require('fs');
+var fs = require("fs");
 
 yauzl.open("path/to/file.zip", function(err, zipfile) {
   if (err) throw err;

@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "description": "yet another unzip library for node",
   "main": "index.js",
+  "scripts": {
+    "test": "node test/test.js"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/thejoshwolfe/yauzl.git"
@@ -17,6 +20,7 @@
   },
   "homepage": "https://github.com/thejoshwolfe/yauzl",
   "dependencies": {
-    "fd-slicer": "~0.2.1"
+    "fd-slicer": "~0.2.1",
+    "pend": "~1.1.3"
   }
 }
