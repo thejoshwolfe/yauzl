@@ -182,6 +182,13 @@ ZipFile.prototype.readEntry = function(callback) {
       self.entriesRead += 1;
       self.isReadingEntry = false;
 
+      // validate file name
+      if (entry.fileName.indexOf("\\") !== -1) {
+        return callback(new Error("invalid characters in fileName: " + entry.fileName));
+      }
+      if (/^[a-zA-Z]:/.exec(entry.fileName) || /^\//.exec(entry.fileName)) {
+        return callback(new Error("absolute path: " + entry.fileName));
+      }
       callback(null, entry);
     });
   });
