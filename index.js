@@ -1,6 +1,8 @@
 var fs = require("fs");
 var zlib = require("zlib");
 var FdSlicer = require("fd-slicer");
+var util = require("util");
+var EventEmitter = require("events").EventEmitter;
 
 exports.open = open;
 exports.fopen = fopen;
@@ -72,48 +74,32 @@ function fopen(fd, callback) {
   });
 }
 
+util.inherits(ZipFile, EventEmitter);
 function ZipFile(fd, cdOffset, entryCount, comment) {
-  this.fdSlicer = new FdSlicer(fd);
-  this.readEntryCursor = cdOffset;
-  this.entryCount = entryCount;
-  this.comment = comment;
-  this.entriesRead = 0;
-  this.isReadingEntry = false;
+  var self = this;
+  EventEmitter.call(self);
+  self.fdSlicer = new FdSlicer(fd);
+  self.readEntryCursor = cdOffset;
+  self.entryCount = entryCount;
+  self.comment = comment;
+  self.entriesRead = 0;
+  // make sure events don't fire outta here until the client has a chance to attach listeners
+  setImmediate(function() { readEntries(self); });
 }
 ZipFile.prototype.close = function(callback) {
   if (callback == null) callback = defaultCallback;
   fs.close(this.fdSlicer.fd, callback);
 };
-ZipFile.prototype.readEntries = function(callback) {
-  var self = this;
-  if (callback == null) callback = defaultCallback;
-  self.entries = [];
-  // setImmediate here to make sure callback is called asynchronously even if there are 0 entries left.
-  setImmediate(keepReading);
-  function keepReading() {
-    if (self.entriesRemaining() === 0) return callback(null, self.entries);
-    self.readEntry(function(err, entry) {
-      if (err) return callback(err);
-      self.entries.push(entry);
-      keepReading();
-    });
-  }
-};
-ZipFile.prototype.entriesRemaining = function() {
-  return this.entryCount - this.entriesRead;
-};
-ZipFile.prototype.readEntry = function(callback) {
-  var self = this;
-  if (self.isReadingEntry) throw new Error("readEntry already in progress");
-  self.isReadingEntry = true;
-  if (callback == null) callback = defaultCallback;
+
+function readEntries(self) {
+  if (self.entryCount === self.entriesRead) return self.emit("end");
   var buffer = new Buffer(46);
-  readFdSlicerNoEof(this.fdSlicer, buffer, 0, buffer.length, this.readEntryCursor, function(err) {
-    if (err) return callback(err);
+  readFdSlicerNoEof(self.fdSlicer, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
+    if (err) return self.emit("error", err);
     var entry = new Entry();
     // 0 - Central directory file header signature
     var signature = buffer.readUInt32LE(0);
-    if (signature !== 0x02014b50) return callback(new Error("invalid central directory file header signature: 0x" + signature.toString(16)));
+    if (signature !== 0x02014b50) return self.emit("error", new Error("invalid central directory file header signature: 0x" + signature.toString(16)));
     // 4 - Version made by
     entry.versionMadeBy = buffer.readUInt16LE(4);
     // 6 - Version needed to extract (minimum)
@@ -150,7 +136,7 @@ ZipFile.prototype.readEntry = function(callback) {
 
     buffer = new Buffer(entry.fileNameLength + entry.extraFieldLength + entry.fileCommentLength);
     readFdSlicerNoEof(self.fdSlicer, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
-      if (err) return callback(err);
+      if (err) return self.emit("error", err);
       // 46 - File name
       var encoding = entry.generalPurposeBitFlag & 0x800 ? "utf8" : "ascii";
       // TODO: replace ascii with CP437 using https://github.com/bnoordhuis/node-iconv
@@ -180,19 +166,15 @@ ZipFile.prototype.readEntry = function(callback) {
 
       self.readEntryCursor += buffer.length;
       self.entriesRead += 1;
-      self.isReadingEntry = false;
 
       // validate file name
-      if (entry.fileName.indexOf("\\") !== -1) {
-        return callback(new Error("invalid characters in fileName: " + entry.fileName));
-      }
-      if (/^[a-zA-Z]:/.exec(entry.fileName) || /^\//.exec(entry.fileName)) {
-        return callback(new Error("absolute path: " + entry.fileName));
-      }
-      callback(null, entry);
+      if (entry.fileName.indexOf("\\") !== -1) return self.emit("error", new Error("invalid characters in fileName: " + entry.fileName));
+      if (/^[a-zA-Z]:/.exec(entry.fileName) || /^\//.exec(entry.fileName)) return self.emit("error", new Error("absolute path: " + entry.fileName));
+      self.emit("entry", entry);
+      readEntries(self);
     });
   });
-};
+}
 
 ZipFile.prototype.openReadStream = function(entry, callback) {
   var self = this;

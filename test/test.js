@@ -23,41 +23,40 @@ zipfilePaths.forEach(function(zipfilePath) {
   pend.go(function(zipfileCallback) {
     yauzl.open(zipfilePath, function(err, zipfile) {
       if (err) throw err;
-      zipfile.readEntries(function(err, entries) {
-        if (err) throw err;
-        var zipfilePend = new Pend();
-        zipfilePend.max = 1;
-        entries.forEach(function(entry) {
-          var messagePrefix = zipfilePath + ": " + entry.fileName + ": ";
-          zipfilePend.go(function(entryCallback) {
-            var expectedContents = expectedArchiveContents[entry.fileName];
-            if (expectedContents == null) {
-              throw new Error(messagePrefix + "not supposed to exist");
-            }
-            delete expectedArchiveContents[entry.fileName];
-            zipfile.openReadStream(entry, function(err, readStream) {
-              if (err) throw err;
-              var buffers = [];
-              readStream.on("data", function(data) {
-                buffers.push(data);
-              });
-              readStream.on("end", function() {
-                var actualContents = Buffer.concat(buffers);
-                // uh. there's no buffer equality check?
-                var equal = actualContents.toString("binary") === expectedContents.toString("binary");
-                if (!equal) {
-                  throw new Error(messagePrefix + "wrong contents");
-                }
-                console.log(messagePrefix + "pass");
-                entryCallback();
-              });
-              readStream.on("error", function(err) {
-                throw err;
-              });
+      var entryProcessing = new Pend();
+      entryProcessing.max = 1;
+      zipfile.on("entry", function(entry) {
+        var messagePrefix = zipfilePath + ": " + entry.fileName + ": ";
+        entryProcessing.go(function(entryCallback) {
+          var expectedContents = expectedArchiveContents[entry.fileName];
+          if (expectedContents == null) {
+            throw new Error(messagePrefix + "not supposed to exist");
+          }
+          delete expectedArchiveContents[entry.fileName];
+          zipfile.openReadStream(entry, function(err, readStream) {
+            if (err) throw err;
+            var buffers = [];
+            readStream.on("data", function(data) {
+              buffers.push(data);
+            });
+            readStream.on("end", function() {
+              var actualContents = Buffer.concat(buffers);
+              // uh. there's no buffer equality check?
+              var equal = actualContents.toString("binary") === expectedContents.toString("binary");
+              if (!equal) {
+                throw new Error(messagePrefix + "wrong contents");
+              }
+              console.log(messagePrefix + "pass");
+              entryCallback();
+            });
+            readStream.on("error", function(err) {
+              throw err;
             });
           });
         });
-        zipfilePend.wait(function() {
+      });
+      zipfile.on("end", function() {
+        entryProcessing.wait(function() {
           for (var fileName in expectedArchiveContents) {
             throw new Error(zipfilePath + ": " + fileName + ": missing file");
           }

@@ -20,13 +20,10 @@ var fs = require("fs");
 
 yauzl.open("path/to/file.zip", function(err, zipfile) {
   if (err) throw err;
-  zipfile.readEntries(function(err, entries) {
-    if (err) throw err;
-    entries.forEach(function(entry) {
-      zipfile.openReadStream(entry, function(err, readStream) {
-        if (err) throw err;
-        readStream.pipe(fs.createWriteStream(entry.fileName));
-      });
+  zipfile.on("entry", function(entry) {
+    zipfile.openReadStream(entry, function(err, readStream) {
+      if (err) throw err;
+      readStream.pipe(fs.createWriteStream(entry.fileName));
     });
   });
 });
@@ -57,18 +54,22 @@ An `err` is provided if the End of Central Directory Record Signature cannot be 
 which indicates that the fd is not a zip file.
 `zipfile` is an instance of `ZipFile`.
 
-### class ZipFile
+This `callback` is the time to attach listeners for the `entry` event.
+
+### Class: ZipFile
 
 The constructor for the class is not part of the public API.
 Use `open` or `fopen` instead.
 
-#### close([callback])
+#### Event: "entry"
 
-Calls `fs.close(fd, callback)`.
+Callback gets `(entry)`, which is an `Entry`.
 
-#### readEntries([callback])
+#### Event: "end"
 
-`callback` gets `(err, entries)`, where `entries` is an `Array` of `Entry` objects.
+Emitted after the last `entry` event has been emitted.
+Note that it is not necessarily safe to call `close` in response to this event.
+There may still be open streams created by `openReadStream`.
 
 #### openReadStream(entry, [callback])
 
@@ -77,20 +78,10 @@ Calls `fs.close(fd, callback)`.
 If the entry is compressed (with a supported compression method),
 the read stream provides the decompressed data.
 
-#### entriesRemaining()
+#### close([callback])
 
-Returns the number of entries in this `ZipFile` that have not yet been returned by `readEntry`.
-
-#### readEntry([callback])
-
-Most clients should use the `readEntries` function.
-`readEntry` and `entriesRemaining` provide low-level access for reading one entry at a time.
-This can be useful if the index were very large, and you wanted to start reading entries right away.
-
-Calling this function directly sabotages the `readEntries` function.
-You must not call this function before any previous call to this function completes by calling its `callback`.
-
-TODO: really? This API is super sketchy.
+Calls `fs.close(fd, callback)`.
+This will probably cause problems if there are still open streams created by `openReadStream`.
 
 #### entryCount
 
@@ -100,12 +91,12 @@ TODO: really? This API is super sketchy.
 
 `Buffer`. TODO: decode with `cp473`.
 
-### class Entry
+### Class: Entry
 
 Objects of this class represent Central Directory Records.
 Refer to the zip file specification for their type and meaning.
 
-These fields are numbers:
+These fields are of type `Number`:
 
  * `versionMadeBy`
  * `versionNeededToExtract`
@@ -132,7 +123,8 @@ The correct default encoding is `cp473`.
 
 #### extraFields
 
-`Array` with each entry in the form `{id: id, data: data}`, where `id` is a `Number` and `data` is a `Buffer`.
+`Array` with each entry in the form `{id: id, data: data}`,
+where `id` is a `Number` and `data` is a `Buffer`.
 None of the extra fields are considered significant by this library.
 
 #### comment
