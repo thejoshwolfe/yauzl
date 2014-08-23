@@ -92,3 +92,7 @@ zipfilePaths.forEach(function(zipfilePath) {
     });
   });
 });
+pend.wait(function() {
+  // if you don't see this, something never happened.
+  console.log("done");
+});
