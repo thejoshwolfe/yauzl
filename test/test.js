@@ -89,6 +89,9 @@ zipfilePaths.forEach(function(zipfilePath) {
           zipfileCallback();
         });
       });
+      zipfile.on("close", function() {
+        console.log(zipfilePath + ": closed");
+      });
     });
   });
 });

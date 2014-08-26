@@ -18,6 +18,7 @@ function open(path, options, callback) {
     callback = options;
     options = null;
   }
+  if (options == null) options = {autoClose: true};
   if (callback == null) callback = defaultCallback;
   fs.open(path, "r", function(err, fd) {
     if (err) return callback(err);
@@ -33,7 +34,7 @@ function fopen(fd, options, callback) {
     callback = options;
     options = null;
   }
-  if (options == null) options = {autoClose: true};
+  if (options == null) options = {autoClose: false};
   if (callback == null) callback = defaultCallback;
   fs.fstat(fd, function(err, stats) {
     if (err) return callback(err);
@@ -76,7 +77,7 @@ function fopen(fd, options, callback) {
         // the comment length is typcially 0.
         // copy from the original buffer to make sure we're not pinning it from being GC'ed.
         eocdrBuffer.copy(comment, 0, 22, eocdrBuffer.length);
-        return callback(null, new ZipFile(fd, cdOffset, entryCount, comment));
+        return callback(null, new ZipFile(fd, cdOffset, entryCount, comment, options.autoClose));
       }
       callback(new Error("end of central directory record signature not found"));
     });
@@ -84,31 +85,52 @@ function fopen(fd, options, callback) {
 }
 
 util.inherits(ZipFile, EventEmitter);
-function ZipFile(fd, cdOffset, entryCount, comment) {
+function ZipFile(fd, cdOffset, entryCount, comment, autoClose) {
   var self = this;
   EventEmitter.call(self);
-  self.fdSlicer = new FdSlicer(fd);
+  self.fdSlicer = new FdSlicer(fd, {autoClose: true});
+  self.fdSlicer.ref();
+  // forward close events
+  self.fdSlicer.on("error", function(err) {
+    // error closing the fd
+    self.emit("error", err);
+  });
+  self.fdSlicer.once("close", function() {
+    self.emit("close");
+  });
   self.readEntryCursor = cdOffset;
   self.entryCount = entryCount;
   self.comment = comment;
   self.entriesRead = 0;
+  self.autoClose = !!autoClose;
+  self.isOpen = true;
   // make sure events don't fire outta here until the client has a chance to attach listeners
   setImmediate(function() { readEntries(self); });
 }
-ZipFile.prototype.close = function(callback) {
-  if (callback == null) callback = defaultCallback;
-  fs.close(this.fdSlicer.fd, callback);
+ZipFile.prototype.close = function() {
+  if (!this.isOpen) return;
+  this.isOpen = false;
+  this.fdSlicer.unref();
 };
 
+function emitErrorAndAutoClose(self, err) {
+  if (self.autoClose) self.close();
+  self.emit("error", err);
+}
+
 function readEntries(self) {
-  if (self.entryCount === self.entriesRead) return self.emit("end");
+  if (self.entryCount === self.entriesRead) {
+    // done with metadata
+    if (self.autoClose) self.close();
+    return self.emit("end");
+  }
   var buffer = new Buffer(46);
   readFdSlicerNoEof(self.fdSlicer, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
-    if (err) return self.emit("error", err);
+    if (err) return emitErrorAndAutoClose(self, err);
     var entry = new Entry();
     // 0 - Central directory file header signature
     var signature = buffer.readUInt32LE(0);
-    if (signature !== 0x02014b50) return self.emit("error", new Error("invalid central directory file header signature: 0x" + signature.toString(16)));
+    if (signature !== 0x02014b50) return emitErrorAndAutoClose(self, new Error("invalid central directory file header signature: 0x" + signature.toString(16)));
     // 4 - Version made by
     entry.versionMadeBy = buffer.readUInt16LE(4);
     // 6 - Version needed to extract (minimum)
@@ -145,7 +167,7 @@ function readEntries(self) {
 
     buffer = new Buffer(entry.fileNameLength + entry.extraFieldLength + entry.fileCommentLength);
     readFdSlicerNoEof(self.fdSlicer, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
-      if (err) return self.emit("error", err);
+      if (err) return emitErrorAndAutoClose(self, err);
       // 46 - File name
       var encoding = entry.generalPurposeBitFlag & 0x800 ? "utf8" : "ascii";
       // TODO: replace ascii with CP437 using https://github.com/bnoordhuis/node-iconv
@@ -177,8 +199,8 @@ function readEntries(self) {
       self.entriesRead += 1;
 
       // validate file name
-      if (entry.fileName.indexOf("\\") !== -1) return self.emit("error", new Error("invalid characters in fileName: " + entry.fileName));
-      if (/^[a-zA-Z]:/.exec(entry.fileName) || /^\//.exec(entry.fileName)) return self.emit("error", new Error("absolute path: " + entry.fileName));
+      if (entry.fileName.indexOf("\\") !== -1) return emitErrorAndAutoClose(self, new Error("invalid characters in fileName: " + entry.fileName));
+      if (/^[a-zA-Z]:/.exec(entry.fileName) || /^\//.exec(entry.fileName)) return emitErrorAndAutoClose(self, new Error("absolute path: " + entry.fileName));
       self.emit("entry", entry);
       readEntries(self);
     });
@@ -187,44 +209,51 @@ function readEntries(self) {
 
 ZipFile.prototype.openReadStream = function(entry, callback) {
   var self = this;
+  if (!self.isOpen) return self.emit("error", new Error("closed"));
+  // make sure we don't lose the fd before we open the actual read stream
+  self.fdSlicer.ref();
   var buffer = new Buffer(30);
   readFdSlicerNoEof(self.fdSlicer, buffer, 0, buffer.length, entry.relativeOffsetOfLocalHeader, function(err) {
-    if (err) return callback(err);
-    // 0 - Local file header signature = 0x04034b50
-    var signature = buffer.readUInt32LE(0);
-    if (signature !== 0x04034b50) return callback(new Error("invalid local file header signature: 0x" + signature.toString(16)));
-    // all this should be redundant
-    // 4 - Version needed to extract (minimum)
-    // 6 - General purpose bit flag
-    // 8 - Compression method
-    // 10 - File last modification time
-    // 12 - File last modification date
-    // 14 - CRC-32
-    // 18 - Compressed size
-    // 22 - Uncompressed size
-    // 26 - File name length (n)
-    var fileNameLength = buffer.readUInt16LE(26);
-    // 28 - Extra field length (m)
-    var extraFieldLength = buffer.readUInt16LE(28);
-    // 30 - File name
-    // 30+n - Extra field
-    var localFileHeaderEnd = entry.relativeOffsetOfLocalHeader + buffer.length + fileNameLength + extraFieldLength;
-    var filterStream = null;
-    if (entry.compressionMethod === 0) {
-      // 0 - The file is stored (no compression)
-    } else if (entry.compressionMethod === 8) {
-      // 8 - The file is Deflated
-      filterStream = zlib.createInflateRaw();
-    } else {
-      return callback(new Error("unsupported compression method: " + entry.compressionMethod));
+    try {
+      if (err) return callback(err);
+      // 0 - Local file header signature = 0x04034b50
+      var signature = buffer.readUInt32LE(0);
+      if (signature !== 0x04034b50) return callback(new Error("invalid local file header signature: 0x" + signature.toString(16)));
+      // all this should be redundant
+      // 4 - Version needed to extract (minimum)
+      // 6 - General purpose bit flag
+      // 8 - Compression method
+      // 10 - File last modification time
+      // 12 - File last modification date
+      // 14 - CRC-32
+      // 18 - Compressed size
+      // 22 - Uncompressed size
+      // 26 - File name length (n)
+      var fileNameLength = buffer.readUInt16LE(26);
+      // 28 - Extra field length (m)
+      var extraFieldLength = buffer.readUInt16LE(28);
+      // 30 - File name
+      // 30+n - Extra field
+      var localFileHeaderEnd = entry.relativeOffsetOfLocalHeader + buffer.length + fileNameLength + extraFieldLength;
+      var filterStream = null;
+      if (entry.compressionMethod === 0) {
+        // 0 - The file is stored (no compression)
+      } else if (entry.compressionMethod === 8) {
+        // 8 - The file is Deflated
+        filterStream = zlib.createInflateRaw();
+      } else {
+        return callback(new Error("unsupported compression method: " + entry.compressionMethod));
+      }
+      var fileDataStart = localFileHeaderEnd;
+      var fileDataEnd = fileDataStart + entry.compressedSize;
+      var stream = self.fdSlicer.createReadStream({start: fileDataStart, end: fileDataEnd});
+      if (filterStream != null) {
+        stream = stream.pipe(filterStream);
+      }
+      callback(null, stream);
+    } finally {
+      self.fdSlicer.unref();
     }
-    var fileDataStart = localFileHeaderEnd;
-    var fileDataEnd = fileDataStart + entry.compressedSize;
-    var stream = self.fdSlicer.createReadStream({start: fileDataStart, end: fileDataEnd});
-    if (filterStream != null) {
-      stream = stream.pipe(filterStream);
-    }
-    callback(null, stream);
   });
 };
 

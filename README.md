@@ -8,7 +8,7 @@ Design principles:
    Don't scan for local file headers.
    Read the central directory for file metadata.
  * Don't block the JavaScript thread.
-   Use and provide async apis.
+   Use and provide async APIs.
  * Keep memory usage under control.
    Don't attempt to buffer entire files in RAM at once.
 
@@ -48,6 +48,8 @@ function defaultCallback(err) {
 
 Calls `fs.open(path, "r")` and gives the `fd`, `options`, and `callback` to `fopen` below.
 
+`options` may be omitted or `null` and defaults to `{autoClose: true}`.
+
 ### fopen(fd, [options], [callback])
 
 Reads from the fd, which is presumed to be an open .zip file.
@@ -59,7 +61,14 @@ An `err` is provided if the End of Central Directory Record Signature cannot be 
 which indicates that the fd is not a zip file.
 `zipfile` is an instance of `ZipFile`.
 
-This `callback` is the time to attach listeners for the `entry` event.
+`options` may be omitted or `null` and defaults to `{autoClose: false}`.
+`autoClose` is effectively equivalent to:
+
+```js
+zipfile.once("end", function() {
+  zipfile.close();
+});
+```
 
 ### Class: ZipFile
 
@@ -73,10 +82,14 @@ Callback gets `(entry)`, which is an `Entry`.
 #### Event: "end"
 
 Emitted after the last `entry` event has been emitted.
-Note that it is not necessarily safe to call `close` in response to this event.
-There may still be open streams created by `openReadStream`.
 
-#### openReadStream(entry, [options], [callback])
+#### Event: "close"
+
+Emitted after the fd is actually closed.
+This is after calling `close` (or after the `end` event when `autoClose` is `true`),
+and after all streams created from `openReadStream` have emitted their `end` events.
+
+#### openReadStream(entry, [callback])
 
 `entry` must be an `Entry` object from this `ZipFile`.
 `callback` gets `(err, readStream)`, where `readStream` is a `Readable Stream`.
@@ -85,12 +98,16 @@ the read stream provides the decompressed data.
 
 #### close([callback])
 
-Calls `fs.close(fd, callback)`.
-If `autoClose` is `true` in the original `open` or `fopen` call,
-this function will be called automatically after every `entry` event has been emitted,
-and after every stream created by `openReadStream` is closed.
+Causes all future calls to `openReadStream` to fail,
+and calls `fs.close(fd, callback)` after all streams created by `openReadStream` have emitted their `end` events.
+If this object's `end` event has not been emitted yet, this function causes undefined behavior.
 
-Calling this function before the above conditions have been met will probably result in errors.
+If `autoClose` is `true` in the original `open` or `fopen` call,
+this function will be called automatically in response to this object's `end` event.
+
+#### isOpen
+
+`Boolean`. `true` until `close` is called; then it's `false`.
 
 #### entryCount
 
