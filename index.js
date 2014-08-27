@@ -3,6 +3,7 @@ var zlib = require("zlib");
 var FdSlicer = require("fd-slicer");
 var util = require("util");
 var EventEmitter = require("events").EventEmitter;
+var Iconv = require("iconv").Iconv;
 
 exports.open = open;
 exports.fopen = fopen;
@@ -73,10 +74,8 @@ function fopen(fd, options, callback) {
           return callback(new Error("invalid comment length. expected: " + expectedCommentLength + ". found: " + commentLength));
         }
         // 22 - Comment
-        var comment = new Buffer(commentLength);
-        // the comment length is typcially 0.
-        // copy from the original buffer to make sure we're not pinning it from being GC'ed.
-        eocdrBuffer.copy(comment, 0, 22, eocdrBuffer.length);
+        // the encoding is always cp437.
+        var comment = bufferToString(eocdrBuffer, 22, eocdrBuffer.length, false);
         return callback(null, new ZipFile(fd, cdOffset, entryCount, comment, options.autoClose));
       }
       callback(new Error("end of central directory record signature not found"));
@@ -169,9 +168,8 @@ function readEntries(self) {
     readFdSlicerNoEof(self.fdSlicer, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
       if (err) return emitErrorAndAutoClose(self, err);
       // 46 - File name
-      var encoding = entry.generalPurposeBitFlag & 0x800 ? "utf8" : "ascii";
-      // TODO: replace ascii with CP437 using https://github.com/bnoordhuis/node-iconv
-      entry.fileName = buffer.toString(encoding, 0, entry.fileNameLength);
+      var isUtf8 = entry.generalPurposeBitFlag & 0x800
+      entry.fileName = bufferToString(buffer, 0, entry.fileNameLength);
 
       // 46+n - Extra field
       var fileCommentStart = entry.fileNameLength + entry.extraFieldLength;
@@ -193,7 +191,7 @@ function readEntries(self) {
       }
 
       // 46+n+m - File comment
-      entry.fileComment = buffer.toString(encoding, fileCommentStart, fileCommentStart + entry.fileCommentLength);
+      entry.fileComment = bufferToString(buffer, fileCommentStart, fileCommentStart + entry.fileCommentLength);
 
       self.readEntryCursor += buffer.length;
       self.entriesRead += 1;
@@ -273,6 +271,14 @@ function readFdSlicerNoEof(fdSlicer, buffer, offset, length, position, callback)
     if (bytesRead < length) return callback(new Error("unexpected EOF"));
     callback(null, buffer);
   });
+}
+var cp437_to_utf8 = new Iconv("cp437", "utf8");
+function bufferToString(buffer, start, end, isUtf8) {
+  if (isUtf8) {
+    return buffer.toString("utf8", start, end);
+  } else {
+    return cp437_to_utf8.convert(buffer.slice(start, end)).toString("utf8");
+  }
 }
 function defaultCallback(err) {
   if (err) throw err;

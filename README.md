@@ -95,6 +95,7 @@ and after all streams created from `openReadStream` have emitted their `end` eve
 `callback` gets `(err, readStream)`, where `readStream` is a `Readable Stream`.
 If the entry is compressed (with a supported compression method),
 the read stream provides the decompressed data.
+If this zipfile is already closed (see `close`), the `callback` will receive an `err`.
 
 #### close([callback])
 
@@ -103,7 +104,7 @@ and calls `fs.close(fd, callback)` after all streams created by `openReadStream`
 If this object's `end` event has not been emitted yet, this function causes undefined behavior.
 
 If `autoClose` is `true` in the original `open` or `fopen` call,
-this function will be called automatically in response to this object's `end` event.
+this function will be called automatically effectively in response to this object's `end` event.
 
 #### isOpen
 
@@ -115,7 +116,7 @@ this function will be called automatically in response to this object's `end` ev
 
 #### comment
 
-`Buffer`. TODO: decode with `cp473`.
+`String`. Always decoded with `CP437` per the spec.
 
 ### Class: Entry
 
@@ -133,9 +134,9 @@ These fields are of type `Number`:
  * `crc32`
  * `compressedSize`
  * `uncompressedSize`
- * `fileNameLength`
- * `extraFieldLength`
- * `fileCommentLength`
+ * `fileNameLength` (bytes)
+ * `extraFieldLength` (bytes)
+ * `fileCommentLength` (bytes)
  * `internalFileAttributes`
  * `externalFileAttributes`
  * `relativeOffsetOfLocalHeader`
@@ -143,9 +144,8 @@ These fields are of type `Number`:
 #### fileName
 
 `String`.
-The bytes in the file are decoded with `utf8` if `generalPurposeBitFlag & 0x800`, as per the spec.
-Otherwise, the file name is decoded with `ascii`, which is technically not correct.
-The correct default encoding is `cp473`.
+Following the spec, the bytes for the file name are decoded with
+`utf8` if `generalPurposeBitFlag & 0x800`, otherwise with `CP437`.
 
 #### extraFields
 
@@ -159,14 +159,11 @@ None of the extra fields are considered significant by this library.
 
 ## Limitations
 
-### Default Charset Should Be CP437
-
-Currently, the default charset is `ascii`, but it should be `cp473`.
-
 ### No Multi-Disk Archive Support
 
 This library does not support multi-disk zip files.
-This API was intended for a zip file to span multiple floppy disks, which probably never happens now.
+The multi-disk fields in the zipfile spec were intended for a zip file to span multiple floppy disks,
+which probably never happens now.
 If the "number of this disk" field in the End of Central Directory Record is not `0`,
 the `open` or `fopen` `callback` will receive an `err`.
 By extension the following zip file fields are ignored by this library and not provided to clients:
