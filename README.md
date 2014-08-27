@@ -128,7 +128,7 @@ this function will be called automatically effectively in response to this objec
 ### Class: Entry
 
 Objects of this class represent Central Directory Records.
-Refer to the zip file specification for their type and meaning.
+Refer to the zipfile specification for more details about these fields.
 
 These fields are of type `Number`:
 
@@ -152,7 +152,7 @@ These fields are of type `Number`:
 
 `String`.
 Following the spec, the bytes for the file name are decoded with
-`utf8` if `generalPurposeBitFlag & 0x800`, otherwise with `CP437`.
+`UTF-8` if `generalPurposeBitFlag & 0x800`, otherwise with `CP437`.
 
 #### extraFields
 
@@ -166,7 +166,7 @@ None of the extra fields are considered significant by this library.
 
 #### getLastModDate()
 
-Effectively equivalent to:
+Effectively implemented as:
 
 ```js
 return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime);
