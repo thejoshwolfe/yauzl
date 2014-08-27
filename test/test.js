@@ -3,14 +3,6 @@ var fs = require("fs");
 var path = require("path");
 var Pend = require("pend");
 
-// git doesn't store empty directories, but we need one for the empty zip file test
-(function() {
-  var emptyDirectoryPath = path.join(__dirname, "empty");
-  if (!fs.existsSync(emptyDirectoryPath)) {
-    fs.mkdirSync(emptyDirectoryPath);
-  }
-})();
-
 var zipfilePaths = fs.readdirSync(__dirname).filter(function(filepath) {
   return /\.zip$/.exec(filepath);
 }).map(function(name) {
@@ -33,7 +25,9 @@ zipfilePaths.forEach(function(zipfilePath) {
   function recursiveRead(name) {
     var realPath = path.join(expectedPathPrefix, name);
     if (fs.statSync(realPath).isFile()) {
-      expectedArchiveContents[name] = fs.readFileSync(realPath);
+      if (path.basename(name) !== ".git_please_make_this_directory") {
+        expectedArchiveContents[name] = fs.readFileSync(realPath);
+      }
     } else {
       if (name !== ".") expectedArchiveContents[name] = DIRECTORY;
       fs.readdirSync(realPath).forEach(function(child) {
