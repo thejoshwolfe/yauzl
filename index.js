@@ -9,6 +9,7 @@ exports.open = open;
 exports.fopen = fopen;
 exports.ZipFile = ZipFile;
 exports.Entry = Entry;
+exports.dosDateTimeToDate = dosDateTimeToDate;
 
 // cd - Central Directory
 // cdr - Central Directory Record
@@ -256,6 +257,22 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
 };
 
 function Entry() {
+}
+Entry.prototype.getLastModDate = function() {
+  return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime);
+};
+
+function dosDateTimeToDate(date, time) {
+  var day = date & 0x1f; // 1-31
+  var month = (date >> 5 & 0xf) - 1; // 1-12, 0-11
+  var year = (date >> 9 & 0x7f) + 1980; // 0-128, 1980-2108
+
+  var millisecond = 0;
+  var second = (time & 0x1f) * 2; // 0-29, 0-58 (even numbers)
+  var minute = time >> 5 & 0x3f; // 0-59
+  var hour = time >> 11 & 0x1f; // 0-23
+
+  return new Date(year, month, day, hour, minute, second, millisecond);
 }
 
 function readNoEof(fd, buffer, offset, length, position, callback) {

@@ -18,6 +18,9 @@ var zipfilePaths = fs.readdirSync(__dirname).filter(function(filepath) {
 });
 zipfilePaths.sort();
 
+// use local timezone, because that's how MS-DOS rolls.
+var earliestTimestamp = new Date(2014, 7, 18, 0, 0, 0, 0);
+
 var pend = new Pend();
 // 1 thing at a time for reproducibility
 pend.max = 1;
@@ -45,6 +48,9 @@ zipfilePaths.forEach(function(zipfilePath) {
       entryProcessing.max = 1;
       zipfile.on("entry", function(entry) {
         var messagePrefix = zipfilePath + ": " + entry.fileName + ": ";
+        var timestamp = entry.getLastModDate();
+        if (timestamp < earliestTimestamp) throw new Error(messagePrefix + "timestamp too early: " + timestamp);
+        if (timestamp > new Date()) throw new Error(messagePrefix + "timestamp in the future: " + timestamp);
         entryProcessing.go(function(entryCallback) {
           var fileNameKey = entry.fileName.replace(/\/$/, "");
           var expectedContents = expectedArchiveContents[fileNameKey];

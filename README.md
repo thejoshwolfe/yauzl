@@ -70,6 +70,13 @@ zipfile.once("end", function() {
 });
 ```
 
+### dosDateTimeToDate(date, time)
+
+Converts MS-DOS `date` and `time` data into a JavaScript `Date` object.
+Each parameter is a `Number` treated as an unsigned 16-bit integer.
+Note that this format does not support timezones,
+so the returned object will use the local timezone.
+
 ### Class: ZipFile
 
 The constructor for the class is not part of the public API.
@@ -129,8 +136,8 @@ These fields are of type `Number`:
  * `versionNeededToExtract`
  * `generalPurposeBitFlag`
  * `compressionMethod`
- * `lastModFileTime`
- * `lastModFileDate`
+ * `lastModFileTime` (MS-DOS format, see `getLastModDateTime`)
+ * `lastModFileDate` (MS-DOS format, see `getLastModDateTime`)
  * `crc32`
  * `compressedSize`
  * `uncompressedSize`
@@ -156,6 +163,14 @@ None of the extra fields are considered significant by this library.
 #### comment
 
 `String` decoded with the same charset as used for `fileName`.
+
+#### getLastModDate()
+
+Effectively equivalent to:
+
+```js
+return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime);
+```
 
 ## Limitations
 
