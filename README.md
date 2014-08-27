@@ -205,12 +205,6 @@ but the Local File Header is always ignored.
 This library provides the `crc32` field of `Entry` objects read from the Central Directory.
 However, this field is not used for anything in this library.
 
-### No Date/Time Conversion
-
-The `lastModFileTime` and `lastModFileDate` fields of `Entry` objects
-probably need to be interpreted according to the zip file spec to make them useful.
-This library provides no support for this.
-
 ### versionNeededToExtract Is Ignored
 
 The field `versionNeededToExtract` is ignored,
