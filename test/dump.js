@@ -1,7 +1,16 @@
 
 var yauzl = require("../");
 
-var paths = process.argv.slice(2);
+var paths = [];
+var dumpContents = true;
+process.argv.slice(2).forEach(function(arg) {
+  if (arg === "--no-contents") {
+    dumpContents = false;
+  } else {
+    paths.push(arg);
+  }
+});
+
 paths.forEach(function(path) {
   yauzl.open(path, function(err, zipfile) {
     if (err) throw err;
@@ -11,7 +20,7 @@ paths.forEach(function(path) {
     zipfile.on("entry", function(entry) {
       console.log(entry);
       console.log(entry.getLastModDate());
-      if (/\/$/.exec(entry)) return;
+      if (!dumpContents || /\/$/.exec(entry)) return;
       zipfile.openReadStream(entry, function(err, readStream) {
         if (err) throw err;
         readStream.pipe(process.stdout);
