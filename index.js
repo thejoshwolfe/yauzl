@@ -258,9 +258,9 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
         // bounds check now, because the read streams will probably not complain loud enough.
         // since we're dealing with an unsigned offset plus an unsigned size,
         // we only have 1 thing to check for.
-        if (fileDataEnd > zipfile.fileSize) {
+        if (fileDataEnd > self.fileSize) {
           return callback(new Error("file data overflows file bounds: " +
-              fileDataStart + " + " + entry.compressedSize + " > " + zipfile.fileSize);
+              fileDataStart + " + " + entry.compressedSize + " > " + zipfile.fileSize));
         }
       }
       var stream = self.fdSlicer.createReadStream({start: fileDataStart, end: fileDataEnd});

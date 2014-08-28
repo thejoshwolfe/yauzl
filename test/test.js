@@ -3,20 +3,18 @@ var fs = require("fs");
 var path = require("path");
 var Pend = require("pend");
 
-var zipfilePaths = fs.readdirSync(__dirname).filter(function(filepath) {
-  return /\.zip$/.exec(filepath);
-}).map(function(name) {
-  return path.relative(".", path.join(__dirname, name));
-});
-zipfilePaths.sort();
-
-// use local timezone, because that's how MS-DOS rolls.
+// this is the date i made the example zip files and their content files,
+// so this timestamp will be earlier than all the ones stored in these test zip files
+// (and probably all future zip files).
+// no timezone awareness, because that's how MS-DOS rolls.
 var earliestTimestamp = new Date(2014, 7, 18, 0, 0, 0, 0);
 
 var pend = new Pend();
-// 1 thing at a time for reproducibility
+// 1 thing at a time for better determinism/reproducibility
 pend.max = 1;
-zipfilePaths.forEach(function(zipfilePath) {
+
+// success
+listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
   var expectedPathPrefix = zipfilePath.replace(/\.zip$/, "");
   // TODO: directories, yo.
   var expectedArchiveContents = {};
@@ -95,7 +93,31 @@ zipfilePaths.forEach(function(zipfilePath) {
     });
   });
 });
+
+// failure
+listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
+  pend.go(function(cb) {
+    yauzl.open(zipfilePath, function(err, zipfile) {
+      if (err) {
+        console.log(zipfilePath + ": " + err.message + ": pass");
+      } else {
+        console.log(zipfilePath + ": fail");
+      }
+    });
+  });
+});
+
 pend.wait(function() {
   // if you don't see this, something never happened.
   console.log("done");
 });
+
+function listZipFiles(dir) {
+  var zipfilePaths = fs.readdirSync(dir).filter(function(filepath) {
+    return /\.zip$/.exec(filepath);
+  }).map(function(name) {
+    return path.relative(".", path.join(dir, name));
+  });
+  zipfilePaths.sort();
+  return zipfilePaths;
+}
