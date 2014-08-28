@@ -13,7 +13,7 @@ var pend = new Pend();
 // 1 thing at a time for better determinism/reproducibility
 pend.max = 1;
 
-// success
+// success tests
 listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
   var expectedPathPrefix = zipfilePath.replace(/\.zip$/, "");
   // TODO: directories, yo.
@@ -94,16 +94,52 @@ listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
   });
 });
 
-// failure
+// failure tests
 listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
+  var expectedErrorMessage = path.basename(zipfilePath).replace(/\.zip$/, "");
+  var failedYet = false;
   pend.go(function(cb) {
     yauzl.open(zipfilePath, function(err, zipfile) {
-      if (err) {
-        console.log(zipfilePath + ": " + err.message + ": pass");
-      } else {
-        console.log(zipfilePath + ": fail");
-      }
+      if (err) return checkErrorMessage(err);
+      zipfile.on("error", function(err) {
+        checkErrorMessage(err);
+      });
+      zipfile.on("entry", function(entry) {
+        pend.go(function(cb) {
+          // let's also try to read directories, cuz whatever.
+          zipfile.openReadStream(entry, function(err, stream) {
+            if (err) return checkErrorMessage(err);
+            stream.on("data", function() {
+              // don't care
+            });
+            stream.on("error", function(err) {
+              checkErrorMessage(err);
+            });
+            stream.on("end", function() {
+              cb();
+            });
+          });
+        });
+      });
+      zipfile.on("end", function() {
+        // last thing should be a check for the failure
+        pend.go(function(cb) {
+          if (!failedYet) {
+            throw new Error(zipfilePath + ": expected failure");
+          }
+          cb();
+        });
+        cb();
+      });
     });
+    function checkErrorMessage(err) {
+      var actualMessage = err.message;
+      if (actualMessage != expectedErrorMessage) {
+        throw new Error(zipfilePath + ": wrong error message: " + actualMessage);
+      }
+      console.log(zipfilePath + ": pass");
+      failedYet = true;
+    }
   });
 });
 
