@@ -260,7 +260,7 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
         // we only have 1 thing to check for.
         if (fileDataEnd > self.fileSize) {
           return callback(new Error("file data overflows file bounds: " +
-              fileDataStart + " + " + entry.compressedSize + " > " + zipfile.fileSize));
+              fileDataStart + " + " + entry.compressedSize + " > " + self.fileSize));
         }
       }
       var stream = self.fdSlicer.createReadStream({start: fileDataStart, end: fileDataEnd});
