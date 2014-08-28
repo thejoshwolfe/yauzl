@@ -11,6 +11,8 @@ Design principles:
    Use and provide async APIs.
  * Keep memory usage under control.
    Don't attempt to buffer entire files in RAM at once.
+ * Never crash (if used properly).
+   Don't let malformed zip files bring down client applications who are trying to catch errors.
 
 ## Usage
 
@@ -171,6 +173,16 @@ Effectively implemented as:
 ```js
 return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime);
 ```
+
+## How to Avoid Crashing
+
+When a malformed zipfile is encountered, the default behavior is to crash (throw an exception).
+If you want to handle errors more gracefully than this,
+be sure to do the following:
+
+ * Provide `callback` parameters where they are allowed, and check the `err` parameter.
+ * Attach a listener for the `error` event on any `ZipFile` object you get from `open` or `fopen`.
+ * Attach a listener for the `error` event on any stream you get from `openReadStream`.
 
 ## Limitations
 

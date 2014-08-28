@@ -297,14 +297,14 @@ function readNoEof(fd, buffer, offset, length, position, callback) {
   fs.read(fd, buffer, offset, length, position, function(err, bytesRead) {
     if (err) return callback(err);
     if (bytesRead < length) return callback(new Error("unexpected EOF"));
-    callback(null, buffer);
+    callback();
   });
 }
 function readFdSlicerNoEof(fdSlicer, buffer, offset, length, position, callback) {
   fdSlicer.read(buffer, offset, length, position, function(err, bytesRead) {
     if (err) return callback(err);
     if (bytesRead < length) return callback(new Error("unexpected EOF"));
-    callback(null, buffer);
+    callback();
   });
 }
 var cp437_to_utf8 = new Iconv("cp437", "utf8");
