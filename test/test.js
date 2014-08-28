@@ -102,7 +102,7 @@ listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
     yauzl.open(zipfilePath, function(err, zipfile) {
       if (err) return checkErrorMessage(err, cb);
       zipfile.on("error", function(err) {
-        checkErrorMessage(err);
+        checkErrorMessage(err, cb);
       });
       zipfile.on("entry", function(entry) {
         // let's also try to read directories, cuz whatever.
