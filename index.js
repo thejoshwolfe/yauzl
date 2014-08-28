@@ -77,7 +77,7 @@ function fopen(fd, options, callback) {
         // 22 - Comment
         // the encoding is always cp437.
         var comment = bufferToString(eocdrBuffer, 22, eocdrBuffer.length, false);
-        return callback(null, new ZipFile(fd, cdOffset, entryCount, comment, options.autoClose));
+        return callback(null, new ZipFile(fd, cdOffset, stats.size, entryCount, comment, options.autoClose));
       }
       callback(new Error("end of central directory record signature not found"));
     });
@@ -85,7 +85,7 @@ function fopen(fd, options, callback) {
 }
 
 util.inherits(ZipFile, EventEmitter);
-function ZipFile(fd, cdOffset, entryCount, comment, autoClose) {
+function ZipFile(fd, cdOffset, fileSize, entryCount, comment, autoClose) {
   var self = this;
   EventEmitter.call(self);
   self.fdSlicer = new FdSlicer(fd, {autoClose: true});
@@ -99,6 +99,7 @@ function ZipFile(fd, cdOffset, entryCount, comment, autoClose) {
     self.emit("close");
   });
   self.readEntryCursor = cdOffset;
+  self.fileSize = fileSize;
   self.entryCount = entryCount;
   self.comment = comment;
   self.entriesRead = 0;
@@ -170,7 +171,11 @@ function readEntries(self) {
       if (err) return emitErrorAndAutoClose(self, err);
       // 46 - File name
       var isUtf8 = entry.generalPurposeBitFlag & 0x800
-      entry.fileName = bufferToString(buffer, 0, entry.fileNameLength);
+      try {
+        entry.fileName = bufferToString(buffer, 0, entry.fileNameLength);
+      } catch (e) {
+        return emitErrorAndAutoClose(self, e);
+      }
 
       // 46+n - Extra field
       var fileCommentStart = entry.fileNameLength + entry.extraFieldLength;
@@ -192,7 +197,11 @@ function readEntries(self) {
       }
 
       // 46+n+m - File comment
-      entry.fileComment = bufferToString(buffer, fileCommentStart, fileCommentStart + entry.fileCommentLength);
+      try {
+        entry.fileComment = bufferToString(buffer, fileCommentStart, fileCommentStart + entry.fileCommentLength);
+      } catch (e) {
+        return emitErrorAndAutoClose(self, e);
+      }
 
       self.readEntryCursor += buffer.length;
       self.entriesRead += 1;
@@ -245,6 +254,15 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
       }
       var fileDataStart = localFileHeaderEnd;
       var fileDataEnd = fileDataStart + entry.compressedSize;
+      if (entry.compressedSize !== 0) {
+        // bounds check now, because the read streams will probably not complain loud enough.
+        // since we're dealing with an unsigned offset plus an unsigned size,
+        // we only have 1 thing to check for.
+        if (fileDataEnd > zipfile.fileSize) {
+          return callback(new Error("file data overflows file bounds: " +
+              fileDataStart + " + " + entry.compressedSize + " > " + zipfile.fileSize);
+        }
+      }
       var stream = self.fdSlicer.createReadStream({start: fileDataStart, end: fileDataEnd});
       if (filterStream != null) {
         stream = stream.pipe(filterStream);
