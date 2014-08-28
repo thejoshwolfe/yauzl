@@ -172,7 +172,7 @@ function readEntries(self) {
       // 46 - File name
       var isUtf8 = entry.generalPurposeBitFlag & 0x800
       try {
-        entry.fileName = bufferToString(buffer, 0, entry.fileNameLength);
+        entry.fileName = bufferToString(buffer, 0, entry.fileNameLength, isUtf8);
       } catch (e) {
         return emitErrorAndAutoClose(self, e);
       }
@@ -198,7 +198,7 @@ function readEntries(self) {
 
       // 46+n+m - File comment
       try {
-        entry.fileComment = bufferToString(buffer, fileCommentStart, fileCommentStart + entry.fileCommentLength);
+        entry.fileComment = bufferToString(buffer, fileCommentStart, fileCommentStart + entry.fileCommentLength, isUtf8);
       } catch (e) {
         return emitErrorAndAutoClose(self, e);
       }
