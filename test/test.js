@@ -105,19 +105,14 @@ listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
         checkErrorMessage(err);
       });
       zipfile.on("entry", function(entry) {
-        pend.go(function(cb) {
-          // let's also try to read directories, cuz whatever.
-          zipfile.openReadStream(entry, function(err, stream) {
-            if (err) return checkErrorMessage(err, cb);
-            stream.on("data", function() {
-              // don't care
-            });
-            stream.on("error", function(err) {
-              checkErrorMessage(err, cb);
-            });
-            stream.on("end", function() {
-              cb();
-            });
+        // let's also try to read directories, cuz whatever.
+        zipfile.openReadStream(entry, function(err, stream) {
+          if (err) return checkErrorMessage(err);
+          stream.on("error", function(err) {
+            checkErrorMessage(err);
+          });
+          stream.on("data", function(data) {
+            // ignore
           });
         });
       });
@@ -133,13 +128,13 @@ listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
       });
     });
     function checkErrorMessage(err, cb) {
-      var actualMessage = err.message;
-      if (actualMessage.replace(/[^0-9A-Za-z ]/g, "") !== expectedErrorMessage) {
+      var actualMessage = err.message.replace(/[^0-9A-Za-z -]/g, "");
+      if (actualMessage !== expectedErrorMessage) {
         throw new Error(zipfilePath + ": wrong error message: " + actualMessage);
       }
       console.log(zipfilePath + ": pass");
       failedYet = true;
-      cb();
+      if (cb) cb();
     }
   });
 });
