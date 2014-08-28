@@ -99,13 +99,15 @@ listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
   var expectedErrorMessage = path.basename(zipfilePath).replace(/\.zip$/, "");
   var failedYet = false;
   pend.go(function(cb) {
+    var operationsInProgress = 0;
     yauzl.open(zipfilePath, function(err, zipfile) {
-      if (err) return checkErrorMessage(err, cb);
+      if (err) return checkErrorMessage(err);
       zipfile.on("error", function(err) {
-        checkErrorMessage(err, cb);
+        checkErrorMessage(err);
       });
       zipfile.on("entry", function(entry) {
         // let's also try to read directories, cuz whatever.
+        operationsInProgress += 1;
         zipfile.openReadStream(entry, function(err, stream) {
           if (err) return checkErrorMessage(err);
           stream.on("error", function(err) {
@@ -114,27 +116,32 @@ listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
           stream.on("data", function(data) {
             // ignore
           });
+          stream.on("end", function() {
+            doneWithSomething();
+          });
         });
       });
+      operationsInProgress += 1;
       zipfile.on("end", function() {
-        // last thing should be a check for the failure
-        pend.go(function(cb) {
-          if (!failedYet) {
-            throw new Error(zipfilePath + ": expected failure");
-          }
-          cb();
-        });
-        cb();
+        doneWithSomething();
       });
+      function doneWithSomething() {
+        operationsInProgress -= 1;
+        if (operationsInProgress !== 0) return;
+        if (!failedYet) {
+          throw new Error(zipfilePath + ": expected failure");
+        }
+      }
     });
-    function checkErrorMessage(err, cb) {
+    function checkErrorMessage(err) {
       var actualMessage = err.message.replace(/[^0-9A-Za-z -]/g, "");
       if (actualMessage !== expectedErrorMessage) {
         throw new Error(zipfilePath + ": wrong error message: " + actualMessage);
       }
       console.log(zipfilePath + ": pass");
       failedYet = true;
-      if (cb) cb();
+      operationsInProgress = -Infinity;
+      cb();
     }
   });
 });
