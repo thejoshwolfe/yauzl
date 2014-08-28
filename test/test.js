@@ -100,7 +100,7 @@ listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
   var failedYet = false;
   pend.go(function(cb) {
     yauzl.open(zipfilePath, function(err, zipfile) {
-      if (err) return checkErrorMessage(err);
+      if (err) return checkErrorMessage(err, cb);
       zipfile.on("error", function(err) {
         checkErrorMessage(err);
       });
@@ -108,12 +108,12 @@ listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
         pend.go(function(cb) {
           // let's also try to read directories, cuz whatever.
           zipfile.openReadStream(entry, function(err, stream) {
-            if (err) return checkErrorMessage(err);
+            if (err) return checkErrorMessage(err, cb);
             stream.on("data", function() {
               // don't care
             });
             stream.on("error", function(err) {
-              checkErrorMessage(err);
+              checkErrorMessage(err, cb);
             });
             stream.on("end", function() {
               cb();
@@ -132,13 +132,14 @@ listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
         cb();
       });
     });
-    function checkErrorMessage(err) {
+    function checkErrorMessage(err, cb) {
       var actualMessage = err.message;
-      if (actualMessage != expectedErrorMessage) {
+      if (actualMessage.replace(/[^0-9A-Za-z ]/g, "") !== expectedErrorMessage) {
         throw new Error(zipfilePath + ": wrong error message: " + actualMessage);
       }
       console.log(zipfilePath + ": pass");
       failedYet = true;
+      cb();
     }
   });
 });
