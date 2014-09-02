@@ -23,7 +23,7 @@ var fs = require("fs");
 yauzl.open("path/to/file.zip", function(err, zipfile) {
   if (err) throw err;
   zipfile.on("entry", function(entry) {
-    if (/\/$/.exec(entry.fileName)) {
+    if (/\/$/.test(entry.fileName)) {
       // directory file names end with '/'
       return;
     }
