@@ -13,6 +13,9 @@ Design principles:
    Don't attempt to buffer entire files in RAM at once.
  * Never crash (if used properly).
    Don't let malformed zip files bring down client applications who are trying to catch errors.
+ * Catch unsafe filenames entries.
+   A zip file entry throws an error if its file name starts with `"/"` or `/[A-Za-z]:\//`
+   or if it contains `".."` path segments or `"\\"` (per the spec).
 
 ## Usage
 
