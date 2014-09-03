@@ -159,6 +159,9 @@ These fields are of type `Number`:
 Following the spec, the bytes for the file name are decoded with
 `UTF-8` if `generalPurposeBitFlag & 0x800`, otherwise with `CP437`.
 
+If `fileName` would contain unsafe characters, such as an absolute path or
+a relative directory, yauzl emits an error instead of an entry.
+
 #### extraFields
 
 `Array` with each entry in the form `{id: id, data: data}`,
