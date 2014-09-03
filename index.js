@@ -208,7 +208,8 @@ function readEntries(self) {
 
       // validate file name
       if (entry.fileName.indexOf("\\") !== -1) return emitErrorAndAutoClose(self, new Error("invalid characters in fileName: " + entry.fileName));
-      if (/^[a-zA-Z]:/.exec(entry.fileName) || /^\//.exec(entry.fileName)) return emitErrorAndAutoClose(self, new Error("absolute path: " + entry.fileName));
+      if (/^[a-zA-Z]:/.test(entry.fileName) || /^\//.test(entry.fileName)) return emitErrorAndAutoClose(self, new Error("absolute path: " + entry.fileName));
+      if (entry.fileName.split("/").indexOf("..") !== -1) return emitErrorAndAutoClose(self, new Error("invalid relative path: " + entry.fileName));
       self.emit("entry", entry);
       readEntries(self);
     });
