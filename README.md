@@ -51,11 +51,11 @@ function defaultCallback(err) {
 
 ### open(path, [options], [callback])
 
-Calls `fs.open(path, "r")` and gives the `fd`, `options`, and `callback` to `fopen` below.
+Calls `fs.open(path, "r")` and gives the `fd`, `options`, and `callback` to `fromFd` below.
 
 `options` may be omitted or `null` and defaults to `{autoClose: true}`.
 
-### fopen(fd, [options], [callback])
+### fromFd(fd, [options], [callback])
 
 Reads from the fd, which is presumed to be an open .zip file.
 Note that random access is required by the zip file specification,
@@ -75,6 +75,16 @@ zipfile.once("end", function() {
 });
 ```
 
+### fromBuffer(buffer, [callback])
+
+Like `fromFd`, but reads from a RAM buffer instead of an open file.
+`buffer` is a `Buffer`.
+`callback` is effectively passed directly to `fromFd`.
+
+If a `ZipFile` is acquired from this method,
+it will never emit the `close` event,
+and calling `close()` is not necessary.
+
 ### dosDateTimeToDate(date, time)
 
 Converts MS-DOS `date` and `time` data into a JavaScript `Date` object.
@@ -85,7 +95,7 @@ so the returned object will use the local timezone.
 ### Class: ZipFile
 
 The constructor for the class is not part of the public API.
-Use `open` or `fopen` instead.
+Use `open`, `fromFd`, or `fromBuffer` instead.
 
 #### Event: "entry"
 
@@ -101,6 +111,8 @@ Emitted after the fd is actually closed.
 This is after calling `close` (or after the `end` event when `autoClose` is `true`),
 and after all streams created from `openReadStream` have emitted their `end` events.
 
+This event is never emitted if this `ZipFile` was acquired from `fromBuffer()`.
+
 #### openReadStream(entry, [callback])
 
 `entry` must be an `Entry` object from this `ZipFile`.
@@ -115,7 +127,7 @@ Causes all future calls to `openReadStream` to fail,
 and calls `fs.close(fd, callback)` after all streams created by `openReadStream` have emitted their `end` events.
 If this object's `end` event has not been emitted yet, this function causes undefined behavior.
 
-If `autoClose` is `true` in the original `open` or `fopen` call,
+If `autoClose` is `true` in the original `open` or `fromFd` call,
 this function will be called automatically effectively in response to this object's `end` event.
 
 #### isOpen
@@ -187,7 +199,7 @@ If you want to handle errors more gracefully than this,
 be sure to do the following:
 
  * Provide `callback` parameters where they are allowed, and check the `err` parameter.
- * Attach a listener for the `error` event on any `ZipFile` object you get from `open` or `fopen`.
+ * Attach a listener for the `error` event on any `ZipFile` object you get from `open`, `fromFd`, or `fromBuffer`.
  * Attach a listener for the `error` event on any stream you get from `openReadStream`.
 
 ## Limitations
@@ -198,7 +210,7 @@ This library does not support multi-disk zip files.
 The multi-disk fields in the zipfile spec were intended for a zip file to span multiple floppy disks,
 which probably never happens now.
 If the "number of this disk" field in the End of Central Directory Record is not `0`,
-the `open` or `fopen` `callback` will receive an `err`.
+the `open`, `fromFd`, or `fromBuffer` `callback` will receive an `err`.
 By extension the following zip file fields are ignored by this library and not provided to clients:
 
  * Disk where central directory starts

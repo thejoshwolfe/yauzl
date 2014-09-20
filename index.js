@@ -50,6 +50,7 @@ function fromFd(fd, options, callback) {
 }
 
 function fromBuffer(buffer, callback) {
+  if (callback == null) callback = defaultCallback;
   // i got your open file right here.
   var fdSlicer = new FakeFdSlicer(buffer);
   fromFdSlicer(fdSlicer, buffer.length, {}, callback);
