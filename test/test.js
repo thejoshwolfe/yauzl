@@ -15,80 +15,86 @@ pend.max = 1;
 
 // success tests
 listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
-  var expectedPathPrefix = zipfilePath.replace(/\.zip$/, "");
-  // TODO: directories, yo.
-  var expectedArchiveContents = {};
-  var DIRECTORY = 1; // not a string
-  recursiveRead(".");
-  function recursiveRead(name) {
-    var realPath = path.join(expectedPathPrefix, name);
-    if (fs.statSync(realPath).isFile()) {
-      if (path.basename(name) !== ".git_please_make_this_directory") {
-        expectedArchiveContents[name] = fs.readFileSync(realPath);
+  var openFunctions = [
+    function(callback) { yauzl.open(zipfilePath, callback); },
+    function(callback) { yauzl.fromBuffer(fs.readFileSync(zipfilePath), callback); },
+  ];
+  openFunctions.forEach(function(openFunction, i) {
+    var testId = zipfilePath + "(" + ["fd", "buffer"][i] + "): ";
+    var expectedPathPrefix = zipfilePath.replace(/\.zip$/, "");
+    var expectedArchiveContents = {};
+    var DIRECTORY = 1; // not a string
+    recursiveRead(".");
+    function recursiveRead(name) {
+      var realPath = path.join(expectedPathPrefix, name);
+      if (fs.statSync(realPath).isFile()) {
+        if (path.basename(name) !== ".git_please_make_this_directory") {
+          expectedArchiveContents[name] = fs.readFileSync(realPath);
+        }
+      } else {
+        if (name !== ".") expectedArchiveContents[name] = DIRECTORY;
+        fs.readdirSync(realPath).forEach(function(child) {
+          recursiveRead(path.join(name, child));
+        });
       }
-    } else {
-      if (name !== ".") expectedArchiveContents[name] = DIRECTORY;
-      fs.readdirSync(realPath).forEach(function(child) {
-        recursiveRead(path.join(name, child));
-      });
     }
-  }
-  pend.go(function(zipfileCallback) {
-    yauzl.open(zipfilePath, function(err, zipfile) {
-      if (err) throw err;
-      var entryProcessing = new Pend();
-      entryProcessing.max = 1;
-      zipfile.on("entry", function(entry) {
-        var messagePrefix = zipfilePath + ": " + entry.fileName + ": ";
-        var timestamp = entry.getLastModDate();
-        if (timestamp < earliestTimestamp) throw new Error(messagePrefix + "timestamp too early: " + timestamp);
-        if (timestamp > new Date()) throw new Error(messagePrefix + "timestamp in the future: " + timestamp);
-        entryProcessing.go(function(entryCallback) {
-          var fileNameKey = entry.fileName.replace(/\/$/, "");
-          var expectedContents = expectedArchiveContents[fileNameKey];
-          if (expectedContents == null) {
-            throw new Error(messagePrefix + "not supposed to exist");
-          }
-          delete expectedArchiveContents[fileNameKey];
-          if (entry.fileName !== fileNameKey) {
-            // directory
-            console.log(messagePrefix + "pass");
-            entryCallback();
-          } else {
-            zipfile.openReadStream(entry, function(err, readStream) {
-              if (err) throw err;
-              var buffers = [];
-              readStream.on("data", function(data) {
-                buffers.push(data);
+    pend.go(function(zipfileCallback) {
+      openFunction(function(err, zipfile) {
+        if (err) throw err;
+        var entryProcessing = new Pend();
+        entryProcessing.max = 1;
+        zipfile.on("entry", function(entry) {
+          var messagePrefix = testId + entry.fileName + ": ";
+          var timestamp = entry.getLastModDate();
+          if (timestamp < earliestTimestamp) throw new Error(messagePrefix + "timestamp too early: " + timestamp);
+          if (timestamp > new Date()) throw new Error(messagePrefix + "timestamp in the future: " + timestamp);
+          entryProcessing.go(function(entryCallback) {
+            var fileNameKey = entry.fileName.replace(/\/$/, "");
+            var expectedContents = expectedArchiveContents[fileNameKey];
+            if (expectedContents == null) {
+              throw new Error(messagePrefix + "not supposed to exist");
+            }
+            delete expectedArchiveContents[fileNameKey];
+            if (entry.fileName !== fileNameKey) {
+              // directory
+              console.log(messagePrefix + "pass");
+              entryCallback();
+            } else {
+              zipfile.openReadStream(entry, function(err, readStream) {
+                if (err) throw err;
+                var buffers = [];
+                readStream.on("data", function(data) {
+                  buffers.push(data);
+                });
+                readStream.on("end", function() {
+                  var actualContents = Buffer.concat(buffers);
+                  // uh. there's no buffer equality check?
+                  var equal = actualContents.toString("binary") === expectedContents.toString("binary");
+                  if (!equal) {
+                    throw new Error(messagePrefix + "wrong contents");
+                  }
+                  console.log(messagePrefix + "pass");
+                  entryCallback();
+                });
+                readStream.on("error", function(err) {
+                  throw err;
+                });
               });
-              readStream.on("end", function() {
-                var actualContents = Buffer.concat(buffers);
-                // uh. there's no buffer equality check?
-                var equal = actualContents.toString("binary") === expectedContents.toString("binary");
-                if (!equal) {
-                  throw new Error(messagePrefix + "wrong contents");
-                }
-                console.log(messagePrefix + "pass");
-                entryCallback();
-              });
-              readStream.on("error", function(err) {
-                throw err;
-              });
-            });
-          }
+            }
+          });
         });
-      });
-      zipfile.on("end", function() {
-        entryProcessing.wait(function() {
-          for (var fileName in expectedArchiveContents) {
-            throw new Error(zipfilePath + ": " + fileName + ": missing file");
-          }
-          console.log(zipfilePath + ": pass");
-          zipfileCallback();
+        zipfile.on("end", function() {
+          entryProcessing.wait(function() {
+            for (var fileName in expectedArchiveContents) {
+              throw new Error(testId + fileName + ": missing file");
+            }
+            console.log(testId + "pass");
+            zipfileCallback();
+          });
         });
-      });
-      zipfile.on("close", function() {
-        console.log(zipfilePath + ": closed");
+        zipfile.on("close", function() {
+          console.log(testId + "closed");
+        });
       });
     });
   });

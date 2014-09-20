@@ -3,10 +3,12 @@ var zlib = require("zlib");
 var FdSlicer = require("fd-slicer");
 var util = require("util");
 var EventEmitter = require("events").EventEmitter;
+var PassThrough = require("stream").PassThrough;
 var Iconv = require("iconv").Iconv;
 
 exports.open = open;
-exports.fopen = fopen;
+exports.fromFd = fromFd;
+exports.fromBuffer = fromBuffer;
 exports.ZipFile = ZipFile;
 exports.Entry = Entry;
 exports.dosDateTimeToDate = dosDateTimeToDate;
@@ -24,14 +26,14 @@ function open(path, options, callback) {
   if (callback == null) callback = defaultCallback;
   fs.open(path, "r", function(err, fd) {
     if (err) return callback(err);
-    fopen(fd, options, function(err, zipfile) {
+    fromFd(fd, options, function(err, zipfile) {
       if (err) fs.close(fd, defaultCallback);
       callback(err, zipfile);
     });
   });
 }
 
-function fopen(fd, options, callback) {
+function fromFd(fd, options, callback) {
   if (typeof options === "function") {
     callback = options;
     options = null;
@@ -40,56 +42,67 @@ function fopen(fd, options, callback) {
   if (callback == null) callback = defaultCallback;
   fs.fstat(fd, function(err, stats) {
     if (err) return callback(err);
-    // search backwards for the eocdr signature.
-    // the last field of the eocdr is a variable-length comment.
-    // the comment size is encoded in a 2-byte field in the eocdr, which we can't find without trudging backwards through the comment to find it.
-    // as a consequence of this design decision, it's possible to have ambiguous zip file metadata if a coherent eocdr was in the comment.
-    // we search backwards for a eocdr signature, and hope that whoever made the zip file was smart enough to forbid the eocdr signature in the comment.
-    var eocdrWithoutCommentSize = 22;
-    var maxCommentSize = 0x10000; // 2-byte size
-    var bufferSize = Math.min(eocdrWithoutCommentSize + maxCommentSize, stats.size);
-    var buffer = new Buffer(bufferSize);
-    var bufferReadStart = stats.size - buffer.length;
-    readNoEof(fd, buffer, 0, bufferSize, bufferReadStart, function(err) {
-      if (err) return callback(err);
-      for (var i = bufferSize - eocdrWithoutCommentSize; i >= 0; i -= 1) {
-        if (buffer.readUInt32LE(i) !== 0x06054b50) continue;
-        // found eocdr
-        var eocdrBuffer = buffer.slice(i);
+    var fdSlicer = new FdSlicer(fd, {autoClose: true});
+    // this ref is unreffed in zipfile.close()
+    fdSlicer.ref();
+    fromFdSlicer(fdSlicer, stats.size, options, callback);
+  });
+}
 
-        // 0 - End of central directory signature = 0x06054b50
-        // 4 - Number of this disk
-        var diskNumber = eocdrBuffer.readUInt16LE(4);
-        if (diskNumber !== 0) return callback(new Error("multi-disk zip files are not supported: found disk number: " + diskNumber));
-        // 6 - Disk where central directory starts
-        // 8 - Number of central directory records on this disk
-        // 10 - Total number of central directory records
-        var entryCount = eocdrBuffer.readUInt16LE(10);
-        // 12 - Size of central directory (bytes)
-        // 16 - Offset of start of central directory, relative to start of archive
-        var cdOffset = eocdrBuffer.readUInt32LE(16);
-        // 20 - Comment length
-        var commentLength = eocdrBuffer.readUInt16LE(20);
-        var expectedCommentLength = eocdrBuffer.length - eocdrWithoutCommentSize;
-        if (commentLength !== expectedCommentLength) {
-          return callback(new Error("invalid comment length. expected: " + expectedCommentLength + ". found: " + commentLength));
-        }
-        // 22 - Comment
-        // the encoding is always cp437.
-        var comment = bufferToString(eocdrBuffer, 22, eocdrBuffer.length, false);
-        return callback(null, new ZipFile(fd, cdOffset, stats.size, entryCount, comment, options.autoClose));
+function fromBuffer(buffer, callback) {
+  // i got your open file right here.
+  var fdSlicer = new FakeFdSlicer(buffer);
+  fromFdSlicer(fdSlicer, buffer.length, {}, callback);
+}
+function fromFdSlicer(fdSlicer, totalSize, options, callback) {
+  // search backwards for the eocdr signature.
+  // the last field of the eocdr is a variable-length comment.
+  // the comment size is encoded in a 2-byte field in the eocdr, which we can't find without trudging backwards through the comment to find it.
+  // as a consequence of this design decision, it's possible to have ambiguous zip file metadata if a coherent eocdr was in the comment.
+  // we search backwards for a eocdr signature, and hope that whoever made the zip file was smart enough to forbid the eocdr signature in the comment.
+  var eocdrWithoutCommentSize = 22;
+  var maxCommentSize = 0x10000; // 2-byte size
+  var bufferSize = Math.min(eocdrWithoutCommentSize + maxCommentSize, totalSize);
+  var buffer = new Buffer(bufferSize);
+  var bufferReadStart = totalSize - buffer.length;
+  readFdSlicerNoEof(fdSlicer, buffer, 0, bufferSize, bufferReadStart, function(err) {
+    if (err) return callback(err);
+    for (var i = bufferSize - eocdrWithoutCommentSize; i >= 0; i -= 1) {
+      if (buffer.readUInt32LE(i) !== 0x06054b50) continue;
+      // found eocdr
+      var eocdrBuffer = buffer.slice(i);
+
+      // 0 - End of central directory signature = 0x06054b50
+      // 4 - Number of this disk
+      var diskNumber = eocdrBuffer.readUInt16LE(4);
+      if (diskNumber !== 0) return callback(new Error("multi-disk zip files are not supported: found disk number: " + diskNumber));
+      // 6 - Disk where central directory starts
+      // 8 - Number of central directory records on this disk
+      // 10 - Total number of central directory records
+      var entryCount = eocdrBuffer.readUInt16LE(10);
+      // 12 - Size of central directory (bytes)
+      // 16 - Offset of start of central directory, relative to start of archive
+      var cdOffset = eocdrBuffer.readUInt32LE(16);
+      // 20 - Comment length
+      var commentLength = eocdrBuffer.readUInt16LE(20);
+      var expectedCommentLength = eocdrBuffer.length - eocdrWithoutCommentSize;
+      if (commentLength !== expectedCommentLength) {
+        return callback(new Error("invalid comment length. expected: " + expectedCommentLength + ". found: " + commentLength));
       }
-      callback(new Error("end of central directory record signature not found"));
-    });
+      // 22 - Comment
+      // the encoding is always cp437.
+      var comment = bufferToString(eocdrBuffer, 22, eocdrBuffer.length, false);
+      return callback(null, new ZipFile(fdSlicer, cdOffset, totalSize, entryCount, comment, options.autoClose));
+    }
+    callback(new Error("end of central directory record signature not found"));
   });
 }
 
 util.inherits(ZipFile, EventEmitter);
-function ZipFile(fd, cdOffset, fileSize, entryCount, comment, autoClose) {
+function ZipFile(fdSlicer, cdOffset, fileSize, entryCount, comment, autoClose) {
   var self = this;
   EventEmitter.call(self);
-  self.fdSlicer = new FdSlicer(fd, {autoClose: true});
-  self.fdSlicer.ref();
+  self.fdSlicer = fdSlicer;
   // forward close events
   self.fdSlicer.on("error", function(err) {
     // error closing the fd
@@ -294,13 +307,6 @@ function dosDateTimeToDate(date, time) {
   return new Date(year, month, day, hour, minute, second, millisecond);
 }
 
-function readNoEof(fd, buffer, offset, length, position, callback) {
-  fs.read(fd, buffer, offset, length, position, function(err, bytesRead) {
-    if (err) return callback(err);
-    if (bytesRead < length) return callback(new Error("unexpected EOF"));
-    callback();
-  });
-}
 function readFdSlicerNoEof(fdSlicer, buffer, offset, length, position, callback) {
   fdSlicer.read(buffer, offset, length, position, function(err, bytesRead) {
     if (err) return callback(err);
@@ -316,6 +322,33 @@ function bufferToString(buffer, start, end, isUtf8) {
     return cp437_to_utf8.convert(buffer.slice(start, end)).toString("utf8");
   }
 }
+
+function FakeFdSlicer(buffer) {
+  // pretend that a buffer is an FdSlicer
+  this.buffer = buffer;
+}
+FakeFdSlicer.prototype.read = function(buffer, offset, length, position, callback) {
+  this.buffer.copy(buffer, offset, position, position + length);
+  setImmediate(function() {
+    callback(null, length);
+  });
+};
+FakeFdSlicer.prototype.createReadStream = function(options) {
+  var start = options.start;
+  var end = options.end;
+  var buffer = new Buffer(end - start);
+  this.buffer.copy(buffer, 0, start, end);
+  var stream = new PassThrough();
+  stream.write(buffer);
+  stream.end();
+  return stream;
+};
+// i promise these functions are working properly :|
+FakeFdSlicer.prototype.ref = function() {};
+FakeFdSlicer.prototype.unref = function() {};
+FakeFdSlicer.prototype.on = function() {};
+FakeFdSlicer.prototype.once = function() {};
+
 function defaultCallback(err) {
   if (err) throw err;
 }
