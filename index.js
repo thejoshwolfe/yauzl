@@ -320,7 +320,12 @@ function bufferToString(buffer, start, end, isUtf8) {
   if (isUtf8) {
     return buffer.toString("utf8", start, end);
   } else {
-    return cp437_to_utf8.convert(buffer.slice(start, end)).toString("utf8");
+    var slice = buffer.slice(start, end);
+    if (slice.length === 0) {
+      return "";
+    } else {
+      return cp437_to_utf8.convert(slice).toString("utf8");
+    }
   }
 }
 
