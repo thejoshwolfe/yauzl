@@ -107,7 +107,7 @@ function ZipFile(fdSlicer, cdOffset, fileSize, entryCount, comment, autoClose) {
   // forward close events
   self.fdSlicer.on("error", function(err) {
     // error closing the fd
-    self.emit("error", err);
+    emitError(self, err);
   });
   self.fdSlicer.once("close", function() {
     self.emit("close");
@@ -119,6 +119,7 @@ function ZipFile(fdSlicer, cdOffset, fileSize, entryCount, comment, autoClose) {
   self.entriesRead = 0;
   self.autoClose = !!autoClose;
   self.isOpen = true;
+  self.emittedError = false;
   // make sure events don't fire outta here until the client has a chance to attach listeners
   setImmediate(function() { readEntries(self); });
 }
@@ -130,6 +131,11 @@ ZipFile.prototype.close = function() {
 
 function emitErrorAndAutoClose(self, err) {
   if (self.autoClose) self.close();
+  emitError(self, err);
+}
+function emitError(self, err) {
+  if (self.emittedError) return;
+  self.emittedError = true;
   self.emit("error", err);
 }
 
@@ -137,11 +143,14 @@ function readEntries(self) {
   if (self.entryCount === self.entriesRead) {
     // done with metadata
     if (self.autoClose) self.close();
+    if (self.emittedError) return;
     return self.emit("end");
   }
+  if (self.emittedError) return;
   var buffer = new Buffer(46);
   readFdSlicerNoEof(self.fdSlicer, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
     if (err) return emitErrorAndAutoClose(self, err);
+    if (self.emittedError) return;
     var entry = new Entry();
     // 0 - Central directory file header signature
     var signature = buffer.readUInt32LE(0);
@@ -183,6 +192,7 @@ function readEntries(self) {
     buffer = new Buffer(entry.fileNameLength + entry.extraFieldLength + entry.fileCommentLength);
     readFdSlicerNoEof(self.fdSlicer, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
       if (err) return emitErrorAndAutoClose(self, err);
+      if (self.emittedError) return;
       // 46 - File name
       var isUtf8 = entry.generalPurposeBitFlag & 0x800
       try {
@@ -232,7 +242,7 @@ function readEntries(self) {
 
 ZipFile.prototype.openReadStream = function(entry, callback) {
   var self = this;
-  if (!self.isOpen) return self.emit("error", new Error("closed"));
+  if (!self.isOpen) return callback(new Error("closed"));
   // make sure we don't lose the fd before we open the actual read stream
   self.fdSlicer.ref();
   var buffer = new Buffer(30);

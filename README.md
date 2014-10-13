@@ -117,7 +117,7 @@ This event is never emitted if this `ZipFile` was acquired from `fromBuffer()`.
 
 Emitted in the case of errors with reading the zip file.
 (Note that other errors can be emitted from the streams created from `openReadStream()` as well.)
-After this event has been emitted, no further `entry` or `end` events will be emitted,
+After this event has been emitted, no further `entry`, `end`, or `error` events will be emitted,
 but the `close` event may still be emitted.
 
 #### openReadStream(entry, [callback])
