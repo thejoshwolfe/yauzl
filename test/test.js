@@ -109,9 +109,11 @@ listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
     yauzl.open(zipfilePath, function(err, zipfile) {
       if (err) return checkErrorMessage(err);
       zipfile.on("error", function(err) {
+        noEventsAllowedAfterError();
         checkErrorMessage(err);
       });
       zipfile.on("entry", function(entry) {
+        noEventsAllowedAfterError();
         // let's also try to read directories, cuz whatever.
         operationsInProgress += 1;
         zipfile.openReadStream(entry, function(err, stream) {
@@ -129,6 +131,7 @@ listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
       });
       operationsInProgress += 1;
       zipfile.on("end", function() {
+        noEventsAllowedAfterError();
         doneWithSomething();
       });
       function doneWithSomething() {
@@ -148,6 +151,9 @@ listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
       failedYet = true;
       operationsInProgress = -Infinity;
       cb();
+    }
+    function noEventsAllowedAfterError() {
+      if (failedYet) throw new Error("events emitted after error event");
     }
   });
 });
