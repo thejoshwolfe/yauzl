@@ -104,12 +104,14 @@ listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
 listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
   var expectedErrorMessage = path.basename(zipfilePath).replace(/\.zip$/, "");
   var failedYet = false;
+  var emittedError = false;
   pend.go(function(cb) {
     var operationsInProgress = 0;
     yauzl.open(zipfilePath, function(err, zipfile) {
       if (err) return checkErrorMessage(err);
       zipfile.on("error", function(err) {
         noEventsAllowedAfterError();
+        emittedError = true;
         checkErrorMessage(err);
       });
       zipfile.on("entry", function(entry) {
@@ -153,7 +155,7 @@ listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
       cb();
     }
     function noEventsAllowedAfterError() {
-      if (failedYet) throw new Error("events emitted after error event");
+      if (emittedError) throw new Error("events emitted after error event");
     }
   });
 });
