@@ -11,7 +11,11 @@
     "url": "https://github.com/thejoshwolfe/yauzl.git"
   },
   "keywords": [
-    "unzip"
+    "unzip",
+    "zip",
+    "stream",
+    "archive",
+    "file"
   ],
   "author": "Josh Wolfe <thejoshwolfe@gmail.com>",
   "license": "MIT",
