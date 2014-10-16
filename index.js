@@ -4,7 +4,6 @@ var FdSlicer = require("fd-slicer");
 var util = require("util");
 var EventEmitter = require("events").EventEmitter;
 var PassThrough = require("stream").PassThrough;
-var Iconv = require("iconv").Iconv;
 
 exports.open = open;
 exports.fromFd = fromFd;
@@ -329,17 +328,17 @@ function readFdSlicerNoEof(fdSlicer, buffer, offset, length, position, callback)
     callback();
   });
 }
-var cp437_to_utf8 = new Iconv("cp437", "utf8");
+
+var cp437 = '\u0000☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼ !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~⌂ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ';
 function bufferToString(buffer, start, end, isUtf8) {
   if (isUtf8) {
     return buffer.toString("utf8", start, end);
   } else {
-    var slice = buffer.slice(start, end);
-    if (slice.length === 0) {
-      return "";
-    } else {
-      return cp437_to_utf8.convert(slice).toString("utf8");
+    var result = "";
+    for (var i = start; i < end; i++) {
+      result += cp437[buffer[i]];
     }
+    return result;
   }
 }
 
