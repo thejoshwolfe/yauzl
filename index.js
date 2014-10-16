@@ -4,7 +4,7 @@ var FdSlicer = require("fd-slicer");
 var util = require("util");
 var EventEmitter = require("events").EventEmitter;
 var PassThrough = require("stream").PassThrough;
-var Iconv = require("iconv").Iconv;
+var iconv = require('iconv-lite');
 
 exports.open = open;
 exports.fromFd = fromFd;
@@ -329,7 +329,6 @@ function readFdSlicerNoEof(fdSlicer, buffer, offset, length, position, callback)
     callback();
   });
 }
-var cp437_to_utf8 = new Iconv("cp437", "utf8");
 function bufferToString(buffer, start, end, isUtf8) {
   if (isUtf8) {
     return buffer.toString("utf8", start, end);
@@ -338,7 +337,7 @@ function bufferToString(buffer, start, end, isUtf8) {
     if (slice.length === 0) {
       return "";
     } else {
-      return cp437_to_utf8.convert(slice).toString("utf8");
+      return iconv.decode(slice, 'cp437');
     }
   }
 }
