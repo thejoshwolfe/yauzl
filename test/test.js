@@ -26,6 +26,8 @@ listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
     var DIRECTORY = 1; // not a string
     recursiveRead(".");
     function recursiveRead(name) {
+      // windows support? whatever.
+      var name = name.replace(/\\/g, "/");
       var realPath = path.join(expectedPathPrefix, name);
       if (fs.statSync(realPath).isFile()) {
         if (path.basename(name) !== ".git_please_make_this_directory") {
