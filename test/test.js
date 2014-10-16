@@ -28,13 +28,14 @@ listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
     function recursiveRead(name) {
       // windows support? whatever.
       var name = name.replace(/\\/g, "/");
+      var key = addUnicodeSupport(name);
       var realPath = path.join(expectedPathPrefix, name);
       if (fs.statSync(realPath).isFile()) {
         if (path.basename(name) !== ".git_please_make_this_directory") {
-          expectedArchiveContents[name] = fs.readFileSync(realPath);
+          expectedArchiveContents[key] = fs.readFileSync(realPath);
         }
       } else {
-        if (name !== ".") expectedArchiveContents[name] = DIRECTORY;
+        if (name !== ".") expectedArchiveContents[key] = DIRECTORY;
         fs.readdirSync(realPath).forEach(function(child) {
           recursiveRead(path.join(name, child));
         });
@@ -175,4 +176,13 @@ function listZipFiles(dir) {
   });
   zipfilePaths.sort();
   return zipfilePaths;
+}
+
+function addUnicodeSupport(name) {
+  // reading and writing unicode filenames on mac is broken.
+  // we keep all our test data ascii, and then swap in the real names here.
+  // see https://github.com/thejoshwolfe/yauzl/issues/10
+  name = name.replace(/Turmion Katilot/g, "Turmion Kätilöt");
+  name = name.replace(/Mista veri pakenee/g, "Mistä veri pakenee");
+  return name;
 }
