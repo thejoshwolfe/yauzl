@@ -319,6 +319,10 @@ function dosDateTimeToDate(date, time) {
 }
 
 function readFdSlicerNoEof(fdSlicer, buffer, offset, length, position, callback) {
+  if (length === 0) {
+    // fs.read will throw an out-of-bounds error if you try to read 0 bytes from a 0 byte file
+    return setImmediate(function() { callback(null, new Buffer(0)); });
+  }
   fdSlicer.read(buffer, offset, length, position, function(err, bytesRead) {
     if (err) return callback(err);
     if (bytesRead < length) return callback(new Error("unexpected EOF"));
