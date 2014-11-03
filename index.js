@@ -51,7 +51,7 @@ function fromFd(fd, options, callback) {
 function fromBuffer(buffer, callback) {
   if (callback == null) callback = defaultCallback;
   // i got your open file right here.
-  var fdSlicer = new FakeFdSlicer(buffer);
+  var fdSlicer = FdSlicer.createFromBuffer(buffer);
   fromFdSlicer(fdSlicer, buffer.length, {}, callback);
 }
 function fromFdSlicer(fdSlicer, totalSize, options, callback) {
@@ -341,32 +341,6 @@ function bufferToString(buffer, start, end, isUtf8) {
     return result;
   }
 }
-
-function FakeFdSlicer(buffer) {
-  // pretend that a buffer is an FdSlicer
-  this.buffer = buffer;
-}
-FakeFdSlicer.prototype.read = function(buffer, offset, length, position, callback) {
-  this.buffer.copy(buffer, offset, position, position + length);
-  setImmediate(function() {
-    callback(null, length);
-  });
-};
-FakeFdSlicer.prototype.createReadStream = function(options) {
-  var start = options.start;
-  var end = options.end;
-  var buffer = new Buffer(end - start);
-  this.buffer.copy(buffer, 0, start, end);
-  var stream = new PassThrough();
-  stream.write(buffer);
-  stream.end();
-  return stream;
-};
-// i promise these functions are working properly :|
-FakeFdSlicer.prototype.ref = function() {};
-FakeFdSlicer.prototype.unref = function() {};
-FakeFdSlicer.prototype.on = function() {};
-FakeFdSlicer.prototype.once = function() {};
 
 function defaultCallback(err) {
   if (err) throw err;
