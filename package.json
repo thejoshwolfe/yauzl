@@ -1,6 +1,6 @@
 {
   "name": "yauzl",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "yet another unzip library for node",
   "main": "index.js",
   "scripts": {
