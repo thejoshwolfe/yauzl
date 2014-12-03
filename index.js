@@ -1,6 +1,6 @@
 var fs = require("fs");
 var zlib = require("zlib");
-var FdSlicer = require("fd-slicer");
+var fd_slicer = require("fd-slicer");
 var util = require("util");
 var EventEmitter = require("events").EventEmitter;
 var PassThrough = require("stream").PassThrough;
@@ -41,7 +41,7 @@ function fromFd(fd, options, callback) {
   if (callback == null) callback = defaultCallback;
   fs.fstat(fd, function(err, stats) {
     if (err) return callback(err);
-    var fdSlicer = new FdSlicer(fd, {autoClose: true});
+    var fdSlicer = fd_slicer.createFromFd(fd, {autoClose: true});
     // this ref is unreffed in zipfile.close()
     fdSlicer.ref();
     fromFdSlicer(fdSlicer, stats.size, options, callback);
@@ -51,7 +51,7 @@ function fromFd(fd, options, callback) {
 function fromBuffer(buffer, callback) {
   if (callback == null) callback = defaultCallback;
   // i got your open file right here.
-  var fdSlicer = FdSlicer.createFromBuffer(buffer);
+  var fdSlicer = fd_slicer.createFromBuffer(buffer);
   fromFdSlicer(fdSlicer, buffer.length, {}, callback);
 }
 function fromFdSlicer(fdSlicer, totalSize, options, callback) {
