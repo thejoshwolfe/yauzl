@@ -238,8 +238,7 @@ and encrypted zip files will cause undefined behavior.
 Many unzip libraries mistakenly read the Local File Header data in zip files.
 This data is officially defined to be redundant with the Central Directory information,
 and is not to be trusted.
-There may be conflicts between the Central Directory information and the Local File Header,
-but the Local File Header is always ignored.
+Aside from checking the signature, yauzl ignores the content of the Local File Header.
 
 ### No CRC-32 Checking
 
