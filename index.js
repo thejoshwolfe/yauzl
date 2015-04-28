@@ -188,6 +188,12 @@ function readEntries(self) {
 
     self.readEntryCursor += 46;
 
+    // validate file size
+    if (entry.compressionMethod === 0) {
+      var msg = "compressed/uncompressed size mismatch for stored file: " + entry.compressedSize + " != " + entry.uncompressedSize;
+      if (entry.compressedSize !== entry.uncompressedSize) return emitErrorAndAutoClose(self, new Error(msg));
+    }
+
     buffer = new Buffer(entry.fileNameLength + entry.extraFieldLength + entry.fileCommentLength);
     readFdSlicerNoEof(self.fdSlicer, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
       if (err) return emitErrorAndAutoClose(self, err);
