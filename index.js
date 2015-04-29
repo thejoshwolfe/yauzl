@@ -3,6 +3,7 @@ var zlib = require("zlib");
 var fd_slicer = require("fd-slicer");
 var util = require("util");
 var EventEmitter = require("events").EventEmitter;
+var Transform = require("stream").Transform;
 var PassThrough = require("stream").PassThrough;
 
 exports.open = open;
@@ -273,12 +274,13 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
       // 30 - File name
       // 30+n - Extra field
       var localFileHeaderEnd = entry.relativeOffsetOfLocalHeader + buffer.length + fileNameLength + extraFieldLength;
-      var filterStream = null;
+      var compressed;
       if (entry.compressionMethod === 0) {
         // 0 - The file is stored (no compression)
+        compressed = false;
       } else if (entry.compressionMethod === 8) {
         // 8 - The file is Deflated
-        filterStream = zlib.createInflateRaw();
+        compressed = true;
       } else {
         return callback(new Error("unsupported compression method: " + entry.compressionMethod));
       }
@@ -294,8 +296,14 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
         }
       }
       var stream = self.fdSlicer.createReadStream({start: fileDataStart, end: fileDataEnd});
-      if (filterStream != null) {
-        stream = stream.pipe(filterStream);
+      if (compressed) {
+        var deflateFilter = zlib.createInflateRaw();
+        var checkerStream = new AssertByteCountStream(entry.uncompressedSize);
+        deflateFilter.on("error", function(err) {
+          // forward zlib errors to the client-visible stream
+          checkerStream.emit("error", err);
+        });
+        stream = stream.pipe(deflateFilter).pipe(checkerStream);
       }
       callback(null, stream);
     } finally {
@@ -334,6 +342,28 @@ function readFdSlicerNoEof(fdSlicer, buffer, offset, length, position, callback)
     callback();
   });
 }
+
+util.inherits(AssertByteCountStream, Transform);
+function AssertByteCountStream(byteCount) {
+  Transform.call(this);
+  this.actualByteCount = 0;
+  this.expectedByteCount = byteCount;
+}
+AssertByteCountStream.prototype._transform = function(chunk, encoding, cb) {
+  this.actualByteCount += chunk.length;
+  if (this.actualByteCount > this.expectedByteCount) {
+    var msg = "too many bytes in the stream. expected " + this.expectedByteCount + ". got at least " + this.actualByteCount;
+    return cb(new Error(msg));
+  }
+  cb(null, chunk);
+};
+AssertByteCountStream.prototype._flush = function(cb) {
+  if (this.actualByteCount < this.expectedByteCount) {
+    var msg = "not enough bytes in the stream. expected " + this.expectedByteCount + ". got only " + this.actualByteCount;
+    return cb(new Error(msg));
+  }
+  cb();
+};
 
 var cp437 = '\u0000☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼ !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~⌂ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ';
 function bufferToString(buffer, start, end, isUtf8) {

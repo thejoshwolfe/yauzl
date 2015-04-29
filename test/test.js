@@ -13,8 +13,15 @@ var pend = new Pend();
 // 1 thing at a time for better determinism/reproducibility
 pend.max = 1;
 
+var args = process.argv.slice(2);
+function shouldDoTest(testPath) {
+  if (args.length === 0) return true;
+  return args.indexOf(testPath) !== -1;
+}
+
 // success tests
 listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
+  if (!shouldDoTest(zipfilePath)) return;
   var openFunctions = [
     function(callback) { yauzl.open(zipfilePath, callback); },
     function(callback) { yauzl.fromBuffer(fs.readFileSync(zipfilePath), callback); },
@@ -105,6 +112,7 @@ listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
 
 // failure tests
 listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
+  if (!shouldDoTest(zipfilePath)) return;
   var expectedErrorMessage = path.basename(zipfilePath).replace(/\.zip$/, "");
   var failedYet = false;
   var emittedError = false;
