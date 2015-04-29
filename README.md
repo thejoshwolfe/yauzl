@@ -132,6 +132,19 @@ If the entry is compressed (with a supported compression method),
 the read stream provides the decompressed data.
 If this zipfile is already closed (see `close()`), the `callback` will receive an `err`.
 
+It's possible for the `readStream` to emit errors for several reasons.
+For example, if zlib cannot decompress the data, the zlib error will be emitted from the `readStream`.
+Two more error cases are if the decompressed data has too many or too few actual bytes
+compared to the reported byte count from the entry's `uncompressedSize` field.
+yauzl notices this false information and emits an error from the `readStream`
+after some number of bytes have already been piped through the stream.
+
+Because of this check, clients can always trust the `uncompressedSize` field in `Entry` objects.
+Guarding against [zip bomb](http://en.wikipedia.org/wiki/Zip_bomb) attacks can be accomplished by
+doing some heuristic checks on the size metadata and then watching out for the above errors.
+Such heuristics are outside the scope of this library,
+but enforcing the `uncompressedSize` is implemented here as a security feature.
+
 #### close()
 
 Causes all future calls to `openReadStream()` to fail,
