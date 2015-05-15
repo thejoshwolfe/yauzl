@@ -11,6 +11,7 @@ Design principles:
  * Follow the spec.
    Don't scan for local file headers.
    Read the central directory for file metadata.
+   (see [No Streaming Unzip API](#no-streaming-unzip-api)).
  * Don't block the JavaScript thread.
    Use and provide async APIs.
  * Keep memory usage under control.
@@ -227,6 +228,20 @@ be sure to do the following:
  * Attach a listener for the `error` event on any stream you get from `openReadStream()`.
 
 ## Limitations
+
+### No Streaming Unzip API
+
+Due to the design of the .zip file format, it's impossible to interpret a .zip file from start to finish
+(such as from a readable stream) without sacrificing correctness.
+The Central Directory, which is the authority on the contents of the .zip file, is at the end of a .zip file, not the beginning.
+A streaming API would need to either buffer the entire .zip file to get to the Central Directory before interpreting anything
+(defeating the purpose of a streaming interface), or rely on the Local File Headers which are interspersed through the .zip file.
+However, the Local File Headers are explicitly denounced in the spec as being unreliable copies of the Central Directory,
+so trusting them would be a violation of the spec.
+
+Any library that offers a streaming unzip API must make one of the above two compromises,
+which makes the library either dishonest or nonconformant (usually the latter).
+This library insists on correctness and adherence to the spec, and so does not offer a streaming API.
 
 ### No Multi-Disk Archive Support
 
