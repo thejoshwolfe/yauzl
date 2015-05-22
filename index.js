@@ -39,8 +39,6 @@ function fromFd(fd, options, callback) {
   fs.fstat(fd, function(err, stats) {
     if (err) return callback(err);
     var fdSlicer = fd_slicer.createFromFd(fd, {autoClose: true});
-    // this ref is unreffed in zipfile.close()
-    fdSlicer.ref();
     fromFdSlicer(fdSlicer, stats.size, options, callback);
   });
 }
@@ -54,6 +52,8 @@ function fromBuffer(buffer, callback) {
 }
 
 function fromFdSlicer(fdSlicer, totalSize, options, callback) {
+  // the matching unref() call is in zipfile.close()
+  fdSlicer.ref();
   // eocdr means End of Central Directory Record.
   // search backwards for the eocdr signature.
   // the last field of the eocdr is a variable-length comment.
