@@ -13,10 +13,6 @@ exports.ZipFile = ZipFile;
 exports.Entry = Entry;
 exports.dosDateTimeToDate = dosDateTimeToDate;
 
-// cd - Central Directory
-// cdr - Central Directory Record
-// eocdr - End of Central Directory Record
-
 function open(path, options, callback) {
   if (typeof options === "function") {
     callback = options;
@@ -53,9 +49,12 @@ function fromBuffer(buffer, callback) {
   if (callback == null) callback = defaultCallback;
   // i got your open file right here.
   var fdSlicer = fd_slicer.createFromBuffer(buffer);
-  fromFdSlicer(fdSlicer, buffer.length, {}, callback);
+  var options = {autoClose: false};
+  fromFdSlicer(fdSlicer, buffer.length, options, callback);
 }
+
 function fromFdSlicer(fdSlicer, totalSize, options, callback) {
+  // eocdr means End of Central Directory Record.
   // search backwards for the eocdr signature.
   // the last field of the eocdr is a variable-length comment.
   // the comment size is encoded in a 2-byte field in the eocdr, which we can't find without trudging backwards through the comment to find it.
@@ -83,7 +82,7 @@ function fromFdSlicer(fdSlicer, totalSize, options, callback) {
       var entryCount = eocdrBuffer.readUInt16LE(10);
       // 12 - Size of central directory (bytes)
       // 16 - Offset of start of central directory, relative to start of archive
-      var cdOffset = eocdrBuffer.readUInt32LE(16);
+      var centralDirectoryOffset = eocdrBuffer.readUInt32LE(16);
       // 20 - Comment length
       var commentLength = eocdrBuffer.readUInt16LE(20);
       var expectedCommentLength = eocdrBuffer.length - eocdrWithoutCommentSize;
@@ -93,14 +92,14 @@ function fromFdSlicer(fdSlicer, totalSize, options, callback) {
       // 22 - Comment
       // the encoding is always cp437.
       var comment = bufferToString(eocdrBuffer, 22, eocdrBuffer.length, false);
-      return callback(null, new ZipFile(fdSlicer, cdOffset, totalSize, entryCount, comment, options.autoClose));
+      return callback(null, new ZipFile(fdSlicer, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose));
     }
     callback(new Error("end of central directory record signature not found"));
   });
 }
 
 util.inherits(ZipFile, EventEmitter);
-function ZipFile(fdSlicer, cdOffset, fileSize, entryCount, comment, autoClose) {
+function ZipFile(fdSlicer, centralDirectoryOffset, fileSize, entryCount, comment, autoClose) {
   var self = this;
   EventEmitter.call(self);
   self.fdSlicer = fdSlicer;
@@ -112,7 +111,7 @@ function ZipFile(fdSlicer, cdOffset, fileSize, entryCount, comment, autoClose) {
   self.fdSlicer.once("close", function() {
     self.emit("close");
   });
-  self.readEntryCursor = cdOffset;
+  self.readEntryCursor = centralDirectoryOffset;
   self.fileSize = fileSize;
   self.entryCount = entryCount;
   self.comment = comment;
