@@ -95,8 +95,8 @@ and calling `close()` is not necessary.
 This method of creating a zip file allows clients to implement their own back-end file system.
 For example, a client might translate read calls into network requests.
 
-The `reader` parameter must be of a type that is a subclass of the
-`RandomAccessReader` that implements the required methods.
+The `reader` parameter must be of a type that is a subclass of
+[RandomAccessReader](#class-randomaccessreader) that implements the required methods.
 The `totalSize` is a Number and indicates the total file size of the zip file.
 The parameters `options` and `callback` are the same as for `open()` above.
 
