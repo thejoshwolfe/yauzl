@@ -242,6 +242,7 @@ Subclasses *must* implement this method.
 
 `start` and `end` are Numbers and indicate byte offsets from the start of the file.
 `end` is exclusive, so `_readStreamForRange(0x1000, 0x2000)` would indicate to read `0x1000` bytes.
+`end - start` will alwyas be at least `1`.
 
 This method should return a readable stream which will be `pipe()`ed into another stream.
 It is expected that the readable stream will provide data in several chunks if necessary.
