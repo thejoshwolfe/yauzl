@@ -5,13 +5,16 @@ var util = require("util");
 var EventEmitter = require("events").EventEmitter;
 var Transform = require("stream").Transform;
 var PassThrough = require("stream").PassThrough;
+var Writable = require("stream").Writable;
 
 exports.open = open;
 exports.fromFd = fromFd;
 exports.fromBuffer = fromBuffer;
+exports.fromRandomAccessReader = fromRandomAccessReader;
+exports.dosDateTimeToDate = dosDateTimeToDate;
 exports.ZipFile = ZipFile;
 exports.Entry = Entry;
-exports.dosDateTimeToDate = dosDateTimeToDate;
+exports.RandomAccessReader = RandomAccessReader;
 
 function open(path, options, callback) {
   if (typeof options === "function") {
@@ -38,22 +41,31 @@ function fromFd(fd, options, callback) {
   if (callback == null) callback = defaultCallback;
   fs.fstat(fd, function(err, stats) {
     if (err) return callback(err);
-    var fdSlicer = fd_slicer.createFromFd(fd, {autoClose: true});
-    fromFdSlicer(fdSlicer, stats.size, options, callback);
+    var reader = fd_slicer.createFromFd(fd, {autoClose: true});
+    fromRandomAccessReader(reader, stats.size, options, callback);
   });
 }
 
 function fromBuffer(buffer, callback) {
   if (callback == null) callback = defaultCallback;
   // i got your open file right here.
-  var fdSlicer = fd_slicer.createFromBuffer(buffer);
+  var reader = fd_slicer.createFromBuffer(buffer);
   var options = {autoClose: false};
-  fromFdSlicer(fdSlicer, buffer.length, options, callback);
+  fromRandomAccessReader(reader, buffer.length, options, callback);
 }
 
-function fromFdSlicer(fdSlicer, totalSize, options, callback) {
+function fromRandomAccessReader(reader, totalSize, options, callback) {
+  if (typeof options === "function") {
+    callback = options;
+    options = null;
+  }
+  if (options == null) options = {autoClose: true};
+  if (callback == null) callback = defaultCallback;
+  if (typeof totalSize !== "number") throw new Error("expected totalSize parameter to be a number");
+
   // the matching unref() call is in zipfile.close()
-  fdSlicer.ref();
+  reader.ref();
+
   // eocdr means End of Central Directory Record.
   // search backwards for the eocdr signature.
   // the last field of the eocdr is a variable-length comment.
@@ -65,7 +77,7 @@ function fromFdSlicer(fdSlicer, totalSize, options, callback) {
   var bufferSize = Math.min(eocdrWithoutCommentSize + maxCommentSize, totalSize);
   var buffer = new Buffer(bufferSize);
   var bufferReadStart = totalSize - buffer.length;
-  readFdSlicerNoEof(fdSlicer, buffer, 0, bufferSize, bufferReadStart, function(err) {
+  readAndAssertNoEof(reader, buffer, 0, bufferSize, bufferReadStart, function(err) {
     if (err) return callback(err);
     for (var i = bufferSize - eocdrWithoutCommentSize; i >= 0; i -= 1) {
       if (buffer.readUInt32LE(i) !== 0x06054b50) continue;
@@ -92,23 +104,23 @@ function fromFdSlicer(fdSlicer, totalSize, options, callback) {
       // 22 - Comment
       // the encoding is always cp437.
       var comment = bufferToString(eocdrBuffer, 22, eocdrBuffer.length, false);
-      return callback(null, new ZipFile(fdSlicer, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose));
+      return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose));
     }
     callback(new Error("end of central directory record signature not found"));
   });
 }
 
 util.inherits(ZipFile, EventEmitter);
-function ZipFile(fdSlicer, centralDirectoryOffset, fileSize, entryCount, comment, autoClose) {
+function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, autoClose) {
   var self = this;
   EventEmitter.call(self);
-  self.fdSlicer = fdSlicer;
+  self.reader = reader;
   // forward close events
-  self.fdSlicer.on("error", function(err) {
+  self.reader.on("error", function(err) {
     // error closing the fd
     emitError(self, err);
   });
-  self.fdSlicer.once("close", function() {
+  self.reader.once("close", function() {
     self.emit("close");
   });
   self.readEntryCursor = centralDirectoryOffset;
@@ -125,7 +137,7 @@ function ZipFile(fdSlicer, centralDirectoryOffset, fileSize, entryCount, comment
 ZipFile.prototype.close = function() {
   if (!this.isOpen) return;
   this.isOpen = false;
-  this.fdSlicer.unref();
+  this.reader.unref();
 };
 
 function emitErrorAndAutoClose(self, err) {
@@ -147,7 +159,7 @@ function readEntries(self) {
   }
   if (self.emittedError) return;
   var buffer = new Buffer(46);
-  readFdSlicerNoEof(self.fdSlicer, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
+  readAndAssertNoEof(self.reader, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
     if (err) return emitErrorAndAutoClose(self, err);
     if (self.emittedError) return;
     var entry = new Entry();
@@ -195,7 +207,7 @@ function readEntries(self) {
     }
 
     buffer = new Buffer(entry.fileNameLength + entry.extraFieldLength + entry.fileCommentLength);
-    readFdSlicerNoEof(self.fdSlicer, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
+    readAndAssertNoEof(self.reader, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
       if (err) return emitErrorAndAutoClose(self, err);
       if (self.emittedError) return;
       // 46 - File name
@@ -249,9 +261,9 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
   var self = this;
   if (!self.isOpen) return callback(new Error("closed"));
   // make sure we don't lose the fd before we open the actual read stream
-  self.fdSlicer.ref();
+  self.reader.ref();
   var buffer = new Buffer(30);
-  readFdSlicerNoEof(self.fdSlicer, buffer, 0, buffer.length, entry.relativeOffsetOfLocalHeader, function(err) {
+  readAndAssertNoEof(self.reader, buffer, 0, buffer.length, entry.relativeOffsetOfLocalHeader, function(err) {
     try {
       if (err) return callback(err);
       // 0 - Local file header signature = 0x04034b50
@@ -294,7 +306,7 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
               fileDataStart + " + " + entry.compressedSize + " > " + self.fileSize));
         }
       }
-      var stream = self.fdSlicer.createReadStream({start: fileDataStart, end: fileDataEnd});
+      var stream = self.reader.createReadStream({start: fileDataStart, end: fileDataEnd});
       if (compressed) {
         var deflateFilter = zlib.createInflateRaw();
         var checkerStream = new AssertByteCountStream(entry.uncompressedSize);
@@ -306,7 +318,7 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
       }
       callback(null, stream);
     } finally {
-      self.fdSlicer.unref();
+      self.reader.unref();
     }
   });
 };
@@ -330,12 +342,12 @@ function dosDateTimeToDate(date, time) {
   return new Date(year, month, day, hour, minute, second, millisecond);
 }
 
-function readFdSlicerNoEof(fdSlicer, buffer, offset, length, position, callback) {
+function readAndAssertNoEof(reader, buffer, offset, length, position, callback) {
   if (length === 0) {
     // fs.read will throw an out-of-bounds error if you try to read 0 bytes from a 0 byte file
     return setImmediate(function() { callback(null, new Buffer(0)); });
   }
-  fdSlicer.read(buffer, offset, length, position, function(err, bytesRead) {
+  reader.read(buffer, offset, length, position, function(err, bytesRead) {
     if (err) return callback(err);
     if (bytesRead < length) return callback(new Error("unexpected EOF"));
     callback();
@@ -361,6 +373,86 @@ AssertByteCountStream.prototype._flush = function(cb) {
     var msg = "not enough bytes in the stream. expected " + this.expectedByteCount + ". got only " + this.actualByteCount;
     return cb(new Error(msg));
   }
+  cb();
+};
+
+util.inherits(RandomAccessReader, EventEmitter);
+function RandomAccessReader() {
+  EventEmitter.call(this);
+  this.refCount = 0;
+}
+RandomAccessReader.prototype.ref = function() {
+  this.refCount += 1;
+};
+RandomAccessReader.prototype.unref = function() {
+  var self = this;
+  self.refCount -= 1;
+
+  if (self.refCount > 0) return;
+  if (self.refCount < 0) throw new Error("invalid unref");
+
+  self.close(onCloseDone);
+
+  function onCloseDone(err) {
+    if (err) return self.emit('error', err);
+    self.emit('close');
+  }
+};
+RandomAccessReader.prototype.createReadStream = function(options) {
+  var start = options.start;
+  var end = options.end;
+  if (start === end) {
+    var emptyStream = new PassThrough();
+    setImmediate(function() {
+      emptyStream.end();
+    });
+    return emptyStream;
+  }
+  var stream = this._readStreamForRange(start, end);
+  var refUnrefFilter = new RefUnrefFilter(this);
+  stream.on("error", function(err) {
+    setImmediate(function() {
+      refUnrefFilter.emit("error", err);
+    });
+  });
+  var byteCounter = new AssertByteCountStream(end - start);
+  refUnrefFilter.on("error", function(err) {
+    setImmediate(function() {
+      byteCounter.emit("error", err);
+    });
+  });
+  return stream.pipe(refUnrefFilter).pipe(byteCounter);
+};
+RandomAccessReader.prototype._readStreamForRange = function(start, end) {
+  throw new Error("not implemented");
+};
+RandomAccessReader.prototype.read = function(buffer, offset, length, position, callback) {
+  var readStream = this.createReadStream({start: position, end: position + length});
+  var writeStream = new Writable();
+  var written = 0;
+  writeStream._write = function(chunk, encoding, cb) {
+    chunk.copy(buffer, offset + written, 0, chunk.length);
+    written += chunk.length;
+    cb();
+  };
+  writeStream.on("finish", callback);
+  readStream.on("error", function(error) {
+    callback(error);
+  });
+  readStream.pipe(writeStream);
+};
+RandomAccessReader.prototype.close = function(callback) {
+  setImmediate(callback);
+};
+
+util.inherits(RefUnrefFilter, PassThrough);
+function RefUnrefFilter(context) {
+  PassThrough.call(this);
+  this.context = context;
+  this.context.ref();
+}
+RefUnrefFilter.prototype._flush = function(cb) {
+  this.context.unref();
   cb();
 };
 

@@ -2,6 +2,8 @@ var yauzl = require("../");
 var fs = require("fs");
 var path = require("path");
 var Pend = require("pend");
+var util = require("util");
+var Readable = require("stream").Readable;
 
 // this is the date i made the example zip files and their content files,
 // so this timestamp will be earlier than all the ones stored in these test zip files
@@ -23,11 +25,13 @@ function shouldDoTest(testPath) {
 listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
   if (!shouldDoTest(zipfilePath)) return;
   var openFunctions = [
-    function(callback) { yauzl.open(zipfilePath, callback); },
-    function(callback) { yauzl.fromBuffer(fs.readFileSync(zipfilePath), callback); },
+    function(testId, callback) { yauzl.open(zipfilePath, callback); },
+    function(testId, callback) { yauzl.fromBuffer(fs.readFileSync(zipfilePath), callback); },
+    function(testId, callback) { openWithRandomAccess(zipfilePath, true, testId, callback); },
+    function(testId, callback) { openWithRandomAccess(zipfilePath, false, testId, callback); },
   ];
   openFunctions.forEach(function(openFunction, i) {
-    var testId = zipfilePath + "(" + ["fd", "buffer"][i] + "): ";
+    var testId = zipfilePath + "(" + ["fd", "buffer", "randomAccess", "minimalRandomAccess"][i] + "): ";
     var expectedPathPrefix = zipfilePath.replace(/\.zip$/, "");
     var expectedArchiveContents = {};
     var DIRECTORY = 1; // not a string
@@ -49,7 +53,7 @@ listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
       }
     }
     pend.go(function(zipfileCallback) {
-      openFunction(function(err, zipfile) {
+      openFunction(testId, function(err, zipfile) {
         if (err) throw err;
         var entryProcessing = new Pend();
         entryProcessing.max = 1;
@@ -171,6 +175,30 @@ listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
   });
 });
 
+pend.go(function(cb) {
+  util.inherits(TestRandomAccessReader, yauzl.RandomAccessReader);
+  function TestRandomAccessReader() {
+    yauzl.RandomAccessReader.call(this);
+  }
+  TestRandomAccessReader.prototype._readStreamForRange = function(start, end) {
+    var brokenator = new Readable();
+    brokenator._read = function(size) {
+      brokenator.emit("error", new Error("all reads fail"));
+    };
+    return brokenator;
+  };
+
+  var reader = new TestRandomAccessReader();
+  yauzl.fromRandomAccessReader(reader, 0x1000, function(err, zipfile) {
+    if (err.message === "all reads fail") {
+      console.log("fromRandomAccessReader with errors: pass");
+      cb();
+    } else {
+      throw err;
+    }
+  });
+});
+
 pend.wait(function() {
   // if you don't see this, something never happened.
   console.log("done");
@@ -193,4 +221,41 @@ function addUnicodeSupport(name) {
   name = name.replace(/Turmion Katilot/g, "Turmion Kätilöt");
   name = name.replace(/Mista veri pakenee/g, "Mistä veri pakenee");
   return name;
+}
+
+function openWithRandomAccess(zipfilePath, implementRead, testId, callback) {
+  util.inherits(InefficientRandomAccessReader, yauzl.RandomAccessReader);
+  function InefficientRandomAccessReader() {
+    yauzl.RandomAccessReader.call(this);
+  }
+  InefficientRandomAccessReader.prototype._readStreamForRange = function(start, end) {
+    return fs.createReadStream(zipfilePath, {start: start, end: end - 1});
+  };
+  if (implementRead) {
+    InefficientRandomAccessReader.prototype.read = function(buffer, offset, length, position, callback) {
+      fs.open(zipfilePath, "r", function(err, fd) {
+        if (err) throw err;
+        fs.read(fd, buffer, offset, length, position, function(err, bytesRead) {
+          if (bytesRead < length) throw new Error("unexpected EOF");
+          fs.close(fd, function(err) {
+            if (err) throw err;
+            callback();
+          });
+        });
+      });
+    };
+  }
+  InefficientRandomAccessReader.prototype.close = function(cb) {
+    console.log(testId + "close hook");
+    yauzl.RandomAccessReader.prototype.close.call(this, cb);
+  };
+
+  fs.stat(zipfilePath, function(err, stats) {
+    if (err) throw err;
+    var reader = new InefficientRandomAccessReader();
+    yauzl.fromRandomAccessReader(reader, stats.size, function(err, zipfile) {
+      if (err) throw err;
+      callback(null, zipfile);
+    });
+  });
 }

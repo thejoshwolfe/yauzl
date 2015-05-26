@@ -90,6 +90,16 @@ If a `ZipFile` is acquired from this method,
 it will never emit the `close` event,
 and calling `close()` is not necessary.
 
+### fromRandomAccessReader(reader, totalSize, [options], [callback])
+
+This method of creating a zip file allows clients to implement their own back-end file system.
+For example, a client might translate read calls into network requests.
+
+The `reader` parameter must be of a type that is a subclass of the
+`RandomAccessReader` that implements the required methods.
+The `totalSize` is a Number and indicates the total file size of the zip file.
+The parameters `options` and `callback` are the same as for `open()` above.
+
 ### dosDateTimeToDate(date, time)
 
 Converts MS-DOS `date` and `time` data into a JavaScript `Date` object.
@@ -114,9 +124,12 @@ Emitted after the last `entry` event has been emitted.
 
 Emitted after the fd is actually closed.
 This is after calling `close()` (or after the `end` event when `autoClose` is `true`),
-and after all streams created from `openReadStream()` have emitted their `end` events.
+and after all stream pipelines created from `openReadStream()` have finished reading data from fd.
 
-This event is never emitted if this `ZipFile` was acquired from `fromBuffer()`.
+If this `ZipFile` was acquired from `fromRandomAccessReader()`,
+the "fd" in the previous paragraph refers to the `RandomAccessReader` implemented by the client.
+
+If this `ZipFile` was acquired from `fromBuffer()`, this event is never emitted.
 
 #### Event: "error"
 
@@ -216,6 +229,43 @@ Effectively implemented as:
 ```js
 return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime);
 ```
+
+### Class: RandomAccessReader
+
+This class is meant to be subclassed by clients and instantiated for the `fromRandomAccessReader()` function.
+
+An example implementation can be found in `test/test.js`.
+
+#### randomAccessReader._readStreamForRange(start, end)
+
+Subclasses *must* implement this method.
+
+`start` and `end` are Numbers and indicate byte offsets from the start of the file.
+`end` is exclusive, so `_readStreamForRange(0x1000, 0x2000)` would indicate to read `0x1000` bytes.
+
+This method should return a readable stream which will be `pipe()`ed into another stream.
+It is expected that the readable stream will provide data in several chunks if necessary.
+If the readable stream provides too many or too few bytes, an error will be emitted.
+Any errors emitted on the readable stream will be handled and re-emitted on the client-visible stream
+(returned from `zipfile.openReadStream()`) or provided as the `err` argument to the appropriate callback
+(for example, for `fromRandomAccessReader()`).
+
+#### randomAccessReader.read(buffer, offset, length, position, callback)
+
+Subclasses may implement this method.
+The default implementation uses `createReadStream()` to fill the `buffer`.
+
+This method should behave like `fs.read()`.
+
+#### randomAccessReader.close(callback)
+
+Subclasses may implement this method.
+The default implementation is effectively `setImmediate(callback);`.
+
+`callback` takes parameters `(err)`.
+
+This method is called once the all streams returned from `_readStreamForRange()` have ended,
+and no more `_readStreamForRange()` or `read()` requests will be issued to this object.
 
 ## How to Avoid Crashing
 
