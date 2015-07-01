@@ -138,7 +138,7 @@ Emitted in the case of errors with reading the zip file.
 After this event has been emitted, no further `entry`, `end`, or `error` events will be emitted,
 but the `close` event may still be emitted.
 
-#### openReadStream(entry, [callback])
+#### openReadStream(entry, callback)
 
 `entry` must be an `Entry` object from this `ZipFile`.
 `callback` gets `(err, readStream)`, where `readStream` is a `Readable Stream`.
