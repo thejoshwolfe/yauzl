@@ -62,6 +62,9 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
   if (options == null) options = {autoClose: true};
   if (callback == null) callback = defaultCallback;
   if (typeof totalSize !== "number") throw new Error("expected totalSize parameter to be a number");
+  if (totalSize > Number.MAX_SAFE_INTEGER) {
+    throw new Error("zip file too large. only file sizes up to 2^52 are supported due to JavaScript's Number type being an IEEE 754 double.");
+  }
 
   // the matching unref() call is in zipfile.close()
   reader.ref();
@@ -104,7 +107,51 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
       // 22 - Comment
       // the encoding is always cp437.
       var comment = bufferToString(eocdrBuffer, 22, eocdrBuffer.length, false);
-      return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose));
+
+      if (!(entryCount === 0xffff || centralDirectoryOffset === 0xffffffff)) {
+        return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose));
+      }
+
+      // ZIP64 format
+
+      // ZIP64 Zip64 end of central directory locator
+      var zip64EocdlBuffer = new Buffer(20);
+      var zip64EocdlOffset = bufferReadStart + i - zip64EocdlBuffer.length;
+      readAndAssertNoEof(reader, zip64EocdlBuffer, 0, zip64EocdlBuffer.length, zip64EocdlOffset, function(err) {
+        if (err) return callback(err);
+
+        // 0 - zip64 end of central dir locator signature = 0x07064b50
+        if (zip64EocdlBuffer.readUInt32LE(0) !== 0x07064b50) {
+          return callback(new Error("invalid ZIP64 End of Central Directory Locator signature"));
+        }
+        // 4 - number of the disk with the start of the zip64 end of central directory
+        // 8 - relative offset of the zip64 end of central directory record
+        var zip64EocdrOffset = readUInt64LE(zip64EocdlBuffer, 8);
+        // 16 - total number of disks
+
+        // ZIP64 end of central directory record
+        var zip64EocdrBuffer = new Buffer(56);
+        readAndAssertNoEof(reader, zip64EocdrBuffer, 0, zip64EocdrBuffer.length, zip64EocdrOffset, function(err) {
+          if (err) return callback(err);
+
+          // 0 - zip64 end of central dir signature                           4 bytes  (0x06064b50)
+          if (zip64EocdrBuffer.readUInt32LE(0) !== 0x06064b50) return callback(new Error("invalid ZIP64 end of central directory record signature"));
+          // 4 - size of zip64 end of central directory record                8 bytes
+          // 12 - version made by                                             2 bytes
+          // 14 - version needed to extract                                   2 bytes
+          // 16 - number of this disk                                         4 bytes
+          // 20 - number of the disk with the start of the central directory  4 bytes
+          // 24 - total number of entries in the central directory on this disk         8 bytes
+          // 32 - total number of entries in the central directory            8 bytes
+          entryCount = readUInt64LE(zip64EocdrBuffer, 32);
+          // 40 - size of the central directory                               8 bytes
+          // 48 - offset of start of central directory with respect to the starting disk number     8 bytes
+          centralDirectoryOffset = readUInt64LE(zip64EocdrBuffer, 48);
+          // 56 - zip64 extensible data sector                                (variable size)
+          return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose));
+        });
+      });
+      return;
     }
     callback(new Error("end of central directory record signature not found"));
   });
@@ -200,12 +247,6 @@ function readEntries(self) {
 
     self.readEntryCursor += 46;
 
-    // validate file size
-    if (entry.compressionMethod === 0) {
-      var msg = "compressed/uncompressed size mismatch for stored file: " + entry.compressedSize + " != " + entry.uncompressedSize;
-      if (entry.compressedSize !== entry.uncompressedSize) return emitErrorAndAutoClose(self, new Error(msg));
-    }
-
     buffer = new Buffer(entry.fileNameLength + entry.extraFieldLength + entry.fileCommentLength);
     readAndAssertNoEof(self.reader, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
       if (err) return emitErrorAndAutoClose(self, err);
@@ -246,6 +287,50 @@ function readEntries(self) {
 
       self.readEntryCursor += buffer.length;
       self.entriesRead += 1;
+
+      if (entry.uncompressedSize            === 0xffffffff ||
+          entry.compressedSize              === 0xffffffff ||
+          entry.relativeOffsetOfLocalHeader === 0xffffffff) {
+        // ZIP64 format
+        // find the Zip64 Extended Information Extra Field
+        var zip64EiefBuffer = null;
+        for (var i = 0; i < entry.extraFields.length; i++) {
+          var extraField = entry.extraFields[i];
+          if (extraField.id === 0x0001) {
+            zip64EiefBuffer = extraField.data;
+            break;
+          }
+        }
+        if (zip64EiefBuffer == null) return emitErrorAndAutoClose(self, new Error("expected Zip64 Extended Information Extra Field"));
+        var index = 0;
+        // 0 - Original Size          8 bytes
+        if (entry.uncompressedSize === 0xffffffff) {
+          if (index + 8 > zip64EiefBuffer.length) return emitErrorAndAutoClose(self, new Error("Zip64 Extended Information Extra Field does not include Original Size"));
+          entry.uncompressedSize = readUInt64LE(zip64EiefBuffer, index);
+          index += 8;
+        }
+        // 8 - Compressed Size        8 bytes
+        if (entry.compressedSize === 0xffffffff) {
+          if (index + 8 > zip64EiefBuffer.length) return emitErrorAndAutoClose(self, new Error("Zip64 Extended Information Extra Field does not include Compressed Size"));
+          entry.compressedSize = readUInt64LE(zip64EiefBuffer, index);
+          index += 8;
+        }
+        // 16 - Relative Header Offset 8 bytes
+        if (entry.relativeOffsetOfLocalHeader === 0xffffffff) {
+          if (index + 8 > zip64EiefBuffer.length) return emitErrorAndAutoClose(self, new Error("Zip64 Extended Information Extra Field does not include Relative Header Offset"));
+          entry.relativeOffsetOfLocalHeader = readUInt64LE(zip64EiefBuffer, index);
+          index += 8;
+        }
+        // 24 - Disk Start Number      4 bytes
+      }
+
+      // validate file size
+      if (entry.compressionMethod === 0) {
+        if (entry.compressedSize !== entry.uncompressedSize) {
+          var msg = "compressed/uncompressed size mismatch for stored file: " + entry.compressedSize + " != " + entry.uncompressedSize;
+          return emitErrorAndAutoClose(self, new Error(msg));
+        }
+      }
 
       // validate file name
       if (entry.fileName.indexOf("\\") !== -1) return emitErrorAndAutoClose(self, new Error("invalid characters in fileName: " + entry.fileName));
@@ -467,6 +552,18 @@ function bufferToString(buffer, start, end, isUtf8) {
     }
     return result;
   }
+}
+
+function readUInt64LE(buffer, offset) {
+  // there is no native function for this, because we can't actually store 64-bit integers precisely.
+  // after 53 bits, JavaScript's Number type (IEEE 754 double) can't store individual integers anymore.
+  // but since 53 bits is a whole lot more than 32 bits, we do our best anyway.
+  var lower32 = buffer.readUInt32LE(offset);
+  var upper32 = buffer.readUInt32LE(offset + 4);
+  // we can't use bitshifting here, because JavaScript bitshifting only works on 32-bit integers.
+  return upper32 * 0x100000000 + lower32;
+  // as long as we're bounds checking the result of this function against the total file size,
+  // we'll catch any overflow errors, because we already made sure the total file size was within reason.
 }
 
 function defaultCallback(err) {

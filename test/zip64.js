@@ -5,7 +5,6 @@ var util = require("util");
 var Readable = require("stream").Readable;
 var Writable = require("stream").Writable;
 var BufferList = require("bl");
-var fd_slicer = require("fd-slicer");
 
 function usage() {
   process.stdout.write("" +
@@ -99,29 +98,30 @@ function newLargeBinContentsProducer() {
       if (!readStream.push(buffer)) return;
     }
   };
-  readStream.isLargeBinContentsStream = true;
   return readStream;
 }
 
+// this is just some bytes so we can identify it.
+var prefixLength = 0x100;
+function getPrefixOfStream(stream, cb) {
+  var prefixBuffer = new Buffer(prefixLength);
+  var writer = new Writable();
+  writer._write = function(chunk, encoding, callback) {
+    chunk.copy(prefixBuffer, 0, 0, prefixLength);
+    cb(prefixBuffer);
+    // abandon this pipe
+  };
+  stream.pipe(writer);
+}
+function getPrefixOfLargeBinContents(cb) {
+  getPrefixOfStream(newLargeBinContentsProducer(), cb);
+}
 function compressFile(inputPath, outputPath) {
-  // this is just some bytes so we can go find it.
-  var prefixLength = 0x100;
-
   getPrefixOfLargeBinContents(function(prefixBuffer) {
     findPrefixInPath(prefixBuffer, function(largeBinContentsOffset) {
       writeCompressedFile(largeBinContentsOffset);
     });
   });
-  function getPrefixOfLargeBinContents(cb) {
-    var prefixBuffer = new Buffer(prefixLength);
-    var writer = new Writable();
-    writer._write = function(chunk, encoding, callback) {
-      chunk.copy(prefixBuffer, 0, 0, prefixLength);
-      cb(prefixBuffer);
-      // abandon this pipe
-    };
-    newLargeBinContentsProducer().pipe(writer);
-  }
   function findPrefixInPath(prefixBuffer, cb) {
     var previewLength = 0x1000;
     fs.createReadStream(inputPath, {
@@ -185,11 +185,15 @@ function runTest() {
             }));
           } else {
             // make sure this is the big thing
-            if (readStream.isLargeBinContentsStream) {
-              console.log("test/zip64: " + entry.fileName + ": PASS");
-            } else {
-              throw new Error("large.bin contents read did not return expected stream")
-            }
+            getPrefixOfLargeBinContents(function(expectedPrefixBuffer) {
+              getPrefixOfStream(readStream, function(actualPrefixBuffer) {
+                if (buffersEqual(expectedPrefixBuffer, actualPrefixBuffer)) {
+                  console.log("test/zip64: " + entry.fileName + ": PASS");
+                } else {
+                  throw new Error("large.bin contents read did not return expected stream")
+                }
+              });
+            });
           }
         });
       });
@@ -198,11 +202,12 @@ function runTest() {
 }
 
 function makeRandomAccessReader(cb) {
-  fs.readFile(path.join(__dirname, "zip64/zip64.zip_fragment"), function(err, backendContents) {
+  var fileName = "zip64/zip64.zip_fragment";
+  fs.readFile(path.join(__dirname, fileName), function(err, backendContents) {
     if (err) return callback(err);
 
     if (backendContents.length <= 4) throw new Error("unexpected EOF");
-    var largeBinContentsOffset = backendContents.readUInt32BE(0);
+    var largeBinContentsOffset = backendContents.readUInt32BE(0) - 4;
     if (largeBinContentsOffset > backendContents.length) throw new Error(".zip_fragment header is malformed");
     var largeBinContentsEnd = largeBinContentsOffset + largeBinLength;
 

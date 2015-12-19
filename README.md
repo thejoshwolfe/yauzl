@@ -294,6 +294,20 @@ Any library that offers a streaming unzip API must make one of the above two com
 which makes the library either dishonest or nonconformant (usually the latter).
 This library insists on correctness and adherence to the spec, and so does not offer a streaming API.
 
+### Limitted ZIP64 Support
+
+For ZIP64, only zip files smaller than `8PiB` are supported,
+not the full `16EiB` range that a 64-bit integer should be able to index.
+This is due to the JavaScript Number type being an IEEE 754 double precision float.
+
+The Node.js `fs` module probably has this same limitation.
+
+### ZIP64 Extensible Data Sector Is Ignored
+
+The spec does not allow zip file creators to put arbitrary data here,
+but rather reserves its use for PKWARE and mentions something about Z390.
+This doesn't seem useful to expose in this library, so it is ignored.
+
 ### No Multi-Disk Archive Support
 
 This library does not support multi-disk zip files.
@@ -335,10 +349,6 @@ Regarding the `compressionMethod` field of `Entry` objects,
 only method `0` (stored with no compression)
 and method `8` (deflated) are supported.
 Any of the other 15 official methods will cause the `openReadStream()` `callback` to receive an `err`.
-
-### No ZIP64 Support
-
-A ZIP64 file will probably cause undefined behavior.
 
 ### Data Descriptors Are Ignored
 
