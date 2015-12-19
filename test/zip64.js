@@ -1,5 +1,3 @@
-// see zip64/README.md
-
 var fs = require("fs");
 var path = require("path");
 var yauzl = require("../");
@@ -15,7 +13,17 @@ function usage() {
     "  (no arguments)        run the test\n" +
     "  -d dir/               dump the contents of the expected zip file into the specified directory\n" +
     "  -z in.zip out.zip     compress in.zip into out.zip\n" +
-    "please see zip64/README.md\n" +
+    "\n" +
+    "To recreate the file `zip64.zip_fragment`,\n" +
+    "do the following (from the root directory of this project):\n" +
+    "\n" +
+    "```\n" +
+    "mkdir tmp\n" +
+    "node test/zip64.js -d tmp/\n" +
+    "(cd tmp/ && zip -0 zip64.zip a.txt large.bin b.txt)\n" +
+    "node test/zip64.js -z tmp/zip64.zip test/zip64/zip64.zip_fragment\n" +
+    "rm -rf tmp/\n" +
+    "```\n" +
     "");
   process.exit(1);
 }
