@@ -26,11 +26,11 @@
   },
   "homepage": "https://github.com/thejoshwolfe/yauzl",
   "dependencies": {
-    "fd-slicer": "~1.0.1",
-    "pend": "~1.2.0"
+    "fd-slicer": "~1.0.1"
   },
   "devDependencies": {
     "bl": "~1.0.0",
-    "istanbul": "~0.3.4"
+    "istanbul": "~0.3.4",
+    "pend": "~1.2.0"
   }
 }
