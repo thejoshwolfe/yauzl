@@ -216,7 +216,9 @@ a relative directory, yauzl emits an error instead of an entry.
 
 `Array` with each entry in the form `{id: id, data: data}`,
 where `id` is a `Number` and `data` is a `Buffer`.
-None of the extra fields are considered significant by this library.
+This library looks for and reads the ZIP64 Extended Information Extra Field (0x0001)
+in order to support ZIP64 format zip files.
+None of the other fields are considered significant by this library.
 
 #### comment
 
