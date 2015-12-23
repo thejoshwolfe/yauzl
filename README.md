@@ -110,7 +110,7 @@ so the returned object will use the local timezone.
 ### Class: ZipFile
 
 The constructor for the class is not part of the public API.
-Use `open()`, `fromFd()`, or `fromBuffer()` instead.
+Use `open()`, `fromFd()`, `fromBuffer()`, or `fromRandomAccessReader()` instead.
 
 #### Event: "entry"
 
@@ -277,7 +277,7 @@ If you want to handle errors more gracefully than this,
 be sure to do the following:
 
  * Provide `callback` parameters where they are allowed, and check the `err` parameter.
- * Attach a listener for the `error` event on any `ZipFile` object you get from `open()`, `fromFd()`, or `fromBuffer()`.
+ * Attach a listener for the `error` event on any `ZipFile` object you get from `open()`, `fromFd()`, `fromBuffer()`, or `fromRandomAccessReader()`.
  * Attach a listener for the `error` event on any stream you get from `openReadStream()`.
 
 ## Limitations
@@ -316,7 +316,7 @@ This library does not support multi-disk zip files.
 The multi-disk fields in the zipfile spec were intended for a zip file to span multiple floppy disks,
 which probably never happens now.
 If the "number of this disk" field in the End of Central Directory Record is not `0`,
-the `open()`, `fromFd()`, or `fromBuffer()` `callback` will receive an `err`.
+the `open()`, `fromFd()`, `fromBuffer()`, or `fromRandomAccessReader()` `callback` will receive an `err`.
 By extension the following zip file fields are ignored by this library and not provided to clients:
 
  * Disk where central directory starts
