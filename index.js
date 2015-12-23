@@ -21,7 +21,9 @@ function open(path, options, callback) {
     callback = options;
     options = null;
   }
-  if (options == null) options = {autoClose: true};
+  if (options == null) options = {};
+  if (options.autoClose == null) options.autoClose = true;
+  if (options.lazyEntries == null) options.lazyEntries = false;
   if (callback == null) callback = defaultCallback;
   fs.open(path, "r", function(err, fd) {
     if (err) return callback(err);
@@ -37,7 +39,9 @@ function fromFd(fd, options, callback) {
     callback = options;
     options = null;
   }
-  if (options == null) options = {autoClose: false};
+  if (options == null) options = {};
+  if (options.autoClose == null) options.autoClose = false;
+  if (options.lazyEntries == null) options.lazyEntries = false;
   if (callback == null) callback = defaultCallback;
   fs.fstat(fd, function(err, stats) {
     if (err) return callback(err);
@@ -46,8 +50,14 @@ function fromFd(fd, options, callback) {
   });
 }
 
-function fromBuffer(buffer, callback) {
-  if (callback == null) callback = defaultCallback;
+function fromBuffer(buffer, options, callback) {
+  if (typeof options === "function") {
+    callback = options;
+    options = null;
+  }
+  if (options == null) options = {};
+  options.autoClose = false;
+  if (options.lazyEntries == null) options.lazyEntries = false;
   // i got your open file right here.
   var reader = fd_slicer.createFromBuffer(buffer);
   var options = {autoClose: false};
@@ -59,7 +69,9 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
     callback = options;
     options = null;
   }
-  if (options == null) options = {autoClose: true};
+  if (options == null) options = {};
+  if (options.autoClose == null) options.autoClose = true;
+  if (options.lazyEntries == null) options.lazyEntries = false;
   if (callback == null) callback = defaultCallback;
   if (typeof totalSize !== "number") throw new Error("expected totalSize parameter to be a number");
   if (totalSize > Number.MAX_SAFE_INTEGER) {
@@ -109,7 +121,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
       var comment = bufferToString(eocdrBuffer, 22, eocdrBuffer.length, false);
 
       if (!(entryCount === 0xffff || centralDirectoryOffset === 0xffffffff)) {
-        return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose));
+        return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries));
       }
 
       // ZIP64 format
@@ -148,7 +160,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
           // 48 - offset of start of central directory with respect to the starting disk number     8 bytes
           centralDirectoryOffset = readUInt64LE(zip64EocdrBuffer, 48);
           // 56 - zip64 extensible data sector                                (variable size)
-          return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose));
+          return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries));
         });
       });
       return;
@@ -158,7 +170,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
 }
 
 util.inherits(ZipFile, EventEmitter);
-function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, autoClose) {
+function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, autoClose, lazyEntries) {
   var self = this;
   EventEmitter.call(self);
   self.reader = reader;
@@ -176,10 +188,11 @@ function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, 
   self.comment = comment;
   self.entriesRead = 0;
   self.autoClose = !!autoClose;
+  self.lazyEntries = !!lazyEntries;
   self.isOpen = true;
   self.emittedError = false;
-  // make sure events don't fire outta here until the client has a chance to attach listeners
-  setImmediate(function() { readEntries(self); });
+
+  if (!self.lazyEntries) self.readEntry();
 }
 ZipFile.prototype.close = function() {
   if (!this.isOpen) return;
@@ -197,12 +210,14 @@ function emitError(self, err) {
   self.emit("error", err);
 }
 
-function readEntries(self) {
+ZipFile.prototype.readEntry = function() {
+  var self = this;
   if (self.entryCount === self.entriesRead) {
     // done with metadata
     if (self.autoClose) self.close();
     if (self.emittedError) return;
-    return self.emit("end");
+    setImmediate(function() { self.emit("end"); });
+    return;
   }
   if (self.emittedError) return;
   var buffer = new Buffer(46);
@@ -337,10 +352,11 @@ function readEntries(self) {
       if (/^[a-zA-Z]:/.test(entry.fileName) || /^\//.test(entry.fileName)) return emitErrorAndAutoClose(self, new Error("absolute path: " + entry.fileName));
       if (entry.fileName.split("/").indexOf("..") !== -1) return emitErrorAndAutoClose(self, new Error("invalid relative path: " + entry.fileName));
       self.emit("entry", entry);
-      readEntries(self);
+
+      if (!self.lazyEntries) self.readEntry();
     });
   });
-}
+};
 
 ZipFile.prototype.openReadStream = function(entry, callback) {
   var self = this;

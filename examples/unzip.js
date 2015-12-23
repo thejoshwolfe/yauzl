@@ -3,7 +3,6 @@ var yauzl = require("../");
 var path = require("path");
 var fs = require("fs");
 var Transform = require("stream").Transform;
-var Pend = require("pend"); // npm install pend
 
 var zipFilePath = process.argv[2];
 if (zipFilePath == null || /^-/.test(zipFilePath)) {
@@ -14,47 +13,38 @@ if (zipFilePath == null || /^-/.test(zipFilePath)) {
   process.exit(1);
 }
 
-function mkdirpSync(dir) {
-  if (dir === ".") return;
-  try {
-    fs.statSync(dir);
-    return; // already exists
-  } catch (e) {
-  }
-  var parent = path.dirname(dir);
-  mkdirpSync(parent);
+function mkdirp(dir, cb) {
+  if (dir === ".") return cb();
+  fs.stat(dir, function(err) {
+    if (err == null) return cb(); // already exists
 
-  process.stdout.write(dir.replace(/\/$/, "") + "/\n");
-  fs.mkdirSync(dir);
-}
-
-yauzl.open(zipFilePath, function(err, zipfile) {
-  if (err) throw err;
-
-  // Use Pend to do one thing at a time.
-  // This enables prettier progress output.
-  var pend = new Pend();
-  pend.max = 1;
-
-  // don't start any of the other `go()`s until we're done creating directories
-  pend.go(function(callback) {
-    zipfile.on("end", function() {
-      callback();
+    var parent = path.dirname(dir);
+    mkdirp(parent, function() {
+      process.stdout.write(dir.replace(/\/$/, "") + "/\n");
+      fs.mkdir(dir, cb);
     });
   });
+}
 
+yauzl.open(zipFilePath, {lazyEntries: true}, function(err, zipfile) {
+  if (err) throw err;
+
+  zipfile.readEntry();
+  zipfile.on("close", function() {
+    console.log("done");
+  });
   zipfile.on("entry", function(entry) {
     if (/\/$/.test(entry.fileName)) {
       // directory file names end with '/'
-      mkdirpSync(entry.fileName);
+      mkdirp(entry.fileName, function() {
+        if (err) throw err;
+        zipfile.readEntry();
+      });
     } else {
       // ensure parent directory exists
-      mkdirpSync(path.dirname(entry.fileName));
-      // call openReadStream before we return from this function,
-      // or else the zipfile might autoclose before we get a chance to read it.
-      zipfile.openReadStream(entry, function(err, readStream) {
-        if (err) throw err;
-        pend.go(function(callback) {
+      mkdirp(path.dirname(entry.fileName), function() {
+        zipfile.openReadStream(entry, function(err, readStream) {
+          if (err) throw err;
           // report progress through large files
           var byteCount = 0;
           var totalBytes = entry.uncompressedSize;
@@ -86,7 +76,7 @@ yauzl.open(zipFilePath, function(err, zipfile) {
             // delete the "..."
             process.stdout.write("\b \b\b \b\b \b\n");
             cb();
-            callback();
+            zipfile.readEntry();
           };
 
           // pump file contents

@@ -27,26 +27,40 @@ Design principles:
 ```js
 var yauzl = require("yauzl");
 var fs = require("fs");
+var path = require("path");
+var mkdirp = require("mkdirp"); // or similar
 
-yauzl.open("path/to/file.zip", function(err, zipfile) {
+yauzl.open("path/to/file.zip", {lazyEntries: true}, function(err, zipfile) {
   if (err) throw err;
+  zipfile.readEntry();
   zipfile.on("entry", function(entry) {
     if (/\/$/.test(entry.fileName)) {
       // directory file names end with '/'
-      return;
+      mkdirp(entry.fileName, function(err) {
+        if (err) throw err;
+        zipfile.readEntry();
+      });
+    } else {
+      // file entry
+      zipfile.openReadStream(entry, function(err, readStream) {
+        if (err) throw err;
+        // ensure parent directory exists
+        mkdirp(path.dirname(entry.fileName), function(err) {
+          if (err) throw err;
+          readStream.pipe(fs.createWriteStream(entry.fileName));
+          readStream.on("end", function() {
+            zipfile.readEntry();
+          });
+        });
+      });
     }
-    zipfile.openReadStream(entry, function(err, readStream) {
-      if (err) throw err;
-      // ensure parent directory exists, and then:
-      readStream.pipe(fs.createWriteStream(entry.fileName));
-    });
   });
 });
 ```
 
 ## API
 
-The default for every `callback` parameter is:
+The default for every optional `callback` parameter is:
 
 ```js
 function defaultCallback(err) {
@@ -58,7 +72,23 @@ function defaultCallback(err) {
 
 Calls `fs.open(path, "r")` and gives the `fd`, `options`, and `callback` to `fromFd()` below.
 
-`options` may be omitted or `null` and defaults to `{autoClose: true}`.
+`options` may be omitted or `null`. The defaults are `{autoClose: true, lazyEntries: false}`.
+
+`autoClose` is effectively equivalent to:
+
+```js
+zipfile.once("end", function() {
+  zipfile.close();
+});
+```
+
+`lazyEntries` indicates that entries should be read only when `readEntry()` is called.
+If `lazyEntries` is `false`, `entry` events will be emitted as fast as possible to allow `pipe()`ing
+file data from all entries in parallel.
+This is not recommended, as it can lead to out of control memory usage for zip files with many entries.
+See [issue #22](https://github.com/thejoshwolfe/yauzl/issues/22).
+If `lazyEntries` is `true`, an `entry` or `end` event will be emitted in response to each call to `readEntry()`.
+This allows processing of one entry at a time, and will keep memory usage under control for zip files with many entries.
 
 ### fromFd(fd, [options], [callback])
 
@@ -71,16 +101,10 @@ An `err` is provided if the End of Central Directory Record Signature cannot be 
 which indicates that the fd is not a zip file.
 `zipfile` is an instance of `ZipFile`.
 
-`options` may be omitted or `null` and defaults to `{autoClose: false}`.
-`autoClose` is effectively equivalent to:
+`options` may be omitted or `null`. The defaults are `{autoClose: false, lazyEntries: false}`.
+See `open()` for the meaning of the options.
 
-```js
-zipfile.once("end", function() {
-  zipfile.close();
-});
-```
-
-### fromBuffer(buffer, [callback])
+### fromBuffer(buffer, [options], [callback])
 
 Like `fromFd()`, but reads from a RAM buffer instead of an open file.
 `buffer` is a `Buffer`.
@@ -90,6 +114,10 @@ If a `ZipFile` is acquired from this method,
 it will never emit the `close` event,
 and calling `close()` is not necessary.
 
+`options` may be omitted or `null`. The defaults are `{lazyEntries: false}`.
+See `open()` for the meaning of the options.
+The `autoClose` option is ignored for this method.
+
 ### fromRandomAccessReader(reader, totalSize, [options], [callback])
 
 This method of creating a zip file allows clients to implement their own back-end file system.
@@ -98,7 +126,9 @@ For example, a client might translate read calls into network requests.
 The `reader` parameter must be of a type that is a subclass of
 [RandomAccessReader](#class-randomaccessreader) that implements the required methods.
 The `totalSize` is a Number and indicates the total file size of the zip file.
-The parameters `options` and `callback` are the same as for `open()` above.
+
+`options` may be omitted or `null`. The defaults are `{autoClose: true, lazyEntries: false}`.
+See `open()` for the meaning of the options.
 
 ### dosDateTimeToDate(date, time)
 
@@ -115,16 +145,18 @@ Use `open()`, `fromFd()`, `fromBuffer()`, or `fromRandomAccessReader()` instead.
 #### Event: "entry"
 
 Callback gets `(entry)`, which is an `Entry`.
+See `open()` and `readEntry()` for when this event is emitted.
 
 #### Event: "end"
 
 Emitted after the last `entry` event has been emitted.
+See `open()` and `readEntry()` for more info on when this event is emitted.
 
 #### Event: "close"
 
 Emitted after the fd is actually closed.
 This is after calling `close()` (or after the `end` event when `autoClose` is `true`),
-and after all stream pipelines created from `openReadStream()` have finished reading data from fd.
+and after all stream pipelines created from `openReadStream()` have finished reading data from the fd.
 
 If this `ZipFile` was acquired from `fromRandomAccessReader()`,
 the "fd" in the previous paragraph refers to the `RandomAccessReader` implemented by the client.
@@ -138,6 +170,19 @@ Emitted in the case of errors with reading the zip file.
 After this event has been emitted, no further `entry`, `end`, or `error` events will be emitted,
 but the `close` event may still be emitted.
 
+#### readEntry()
+
+Causes this `ZipFile` to emit an `entry` or `end` event (or an `error` event).
+This method must only be called when this `ZipFile` was created with the `lazyEntries` option set to `true` (see `open()`).
+When this `ZipFile` was created with the `lazyEntries` option set to `true`,
+`entry` and `end` events are only ever emitted in response to this method call.
+
+The event that is emitted in response to this method will not be emitted until after this method has returned,
+so it is safe to call this method before attaching event listeners.
+
+After calling this method, calling this method again before the response event has been emitted will cause undefined behavior.
+Calling this method after the `end` event has been emitted will cause undefined behavior.
+
 #### openReadStream(entry, callback)
 
 `entry` must be an `Entry` object from this `ZipFile`.
@@ -146,7 +191,7 @@ If the entry is compressed (with a supported compression method),
 the read stream provides the decompressed data.
 If this zipfile is already closed (see `close()`), the `callback` will receive an `err`.
 
-It's possible for the `readStream` to emit errors for several reasons.
+It's possible for the `readStream` it to emit errors for several reasons.
 For example, if zlib cannot decompress the data, the zlib error will be emitted from the `readStream`.
 Two more error cases are if the decompressed data has too many or too few actual bytes
 compared to the reported byte count from the entry's `uncompressedSize` field.
@@ -165,7 +210,7 @@ Causes all future calls to `openReadStream()` to fail,
 and closes the fd after all streams created by `openReadStream()` have emitted their `end` events.
 If this object's `end` event has not been emitted yet, this function causes undefined behavior.
 
-If `autoClose` is `true` in the original `open()` or `fromFd()` call,
+If the `autoClose` option is set to `true` (see `open()`),
 this function will be called automatically effectively in response to this object's `end` event.
 
 #### isOpen
