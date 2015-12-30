@@ -25,8 +25,8 @@ function shouldDoTest(testPath) {
 listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
   if (!shouldDoTest(zipfilePath)) return;
   var openFunctions = [
-    function(testId, callback) { yauzl.open(zipfilePath, callback); },
-    function(testId, callback) { yauzl.fromBuffer(fs.readFileSync(zipfilePath), callback); },
+    function(testId, callback) { yauzl.open(zipfilePath, {lazyEntries: true}, callback); },
+    function(testId, callback) { yauzl.fromBuffer(fs.readFileSync(zipfilePath), {lazyEntries: true}, callback); },
     function(testId, callback) { openWithRandomAccess(zipfilePath, true, testId, callback); },
     function(testId, callback) { openWithRandomAccess(zipfilePath, false, testId, callback); },
   ];
@@ -55,56 +55,51 @@ listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
     pend.go(function(zipfileCallback) {
       openFunction(testId, function(err, zipfile) {
         if (err) throw err;
-        var entryProcessing = new Pend();
-        entryProcessing.max = 1;
+        zipfile.readEntry();
         zipfile.on("entry", function(entry) {
           var messagePrefix = testId + entry.fileName + ": ";
           var timestamp = entry.getLastModDate();
           if (timestamp < earliestTimestamp) throw new Error(messagePrefix + "timestamp too early: " + timestamp);
           if (timestamp > new Date()) throw new Error(messagePrefix + "timestamp in the future: " + timestamp);
-          entryProcessing.go(function(entryCallback) {
-            var fileNameKey = entry.fileName.replace(/\/$/, "");
-            var expectedContents = expectedArchiveContents[fileNameKey];
-            if (expectedContents == null) {
-              throw new Error(messagePrefix + "not supposed to exist");
-            }
-            delete expectedArchiveContents[fileNameKey];
-            if (entry.fileName !== fileNameKey) {
-              // directory
-              console.log(messagePrefix + "pass");
-              entryCallback();
-            } else {
-              zipfile.openReadStream(entry, function(err, readStream) {
-                if (err) throw err;
-                var buffers = [];
-                readStream.on("data", function(data) {
-                  buffers.push(data);
-                });
-                readStream.on("end", function() {
-                  var actualContents = Buffer.concat(buffers);
-                  // uh. there's no buffer equality check?
-                  var equal = actualContents.toString("binary") === expectedContents.toString("binary");
-                  if (!equal) {
-                    throw new Error(messagePrefix + "wrong contents");
-                  }
-                  console.log(messagePrefix + "pass");
-                  entryCallback();
-                });
-                readStream.on("error", function(err) {
-                  throw err;
-                });
+          var fileNameKey = entry.fileName.replace(/\/$/, "");
+          var expectedContents = expectedArchiveContents[fileNameKey];
+          if (expectedContents == null) {
+            throw new Error(messagePrefix + "not supposed to exist");
+          }
+          delete expectedArchiveContents[fileNameKey];
+          if (entry.fileName !== fileNameKey) {
+            // directory
+            console.log(messagePrefix + "pass");
+            zipfile.readEntry();
+          } else {
+            zipfile.openReadStream(entry, function(err, readStream) {
+              if (err) throw err;
+              var buffers = [];
+              readStream.on("data", function(data) {
+                buffers.push(data);
               });
-            }
-          });
+              readStream.on("end", function() {
+                var actualContents = Buffer.concat(buffers);
+                // uh. there's no buffer equality check?
+                var equal = actualContents.toString("binary") === expectedContents.toString("binary");
+                if (!equal) {
+                  throw new Error(messagePrefix + "wrong contents");
+                }
+                console.log(messagePrefix + "pass");
+                zipfile.readEntry();
+              });
+              readStream.on("error", function(err) {
+                throw err;
+              });
+            });
+          }
         });
         zipfile.on("end", function() {
-          entryProcessing.wait(function() {
-            for (var fileName in expectedArchiveContents) {
-              throw new Error(testId + fileName + ": missing file");
-            }
-            console.log(testId + "pass");
-            zipfileCallback();
-          });
+          for (var fileName in expectedArchiveContents) {
+            throw new Error(testId + fileName + ": missing file");
+          }
+          console.log(testId + "pass");
+          zipfileCallback();
         });
         zipfile.on("close", function() {
           console.log(testId + "closed");
@@ -253,7 +248,7 @@ function openWithRandomAccess(zipfilePath, implementRead, testId, callback) {
   fs.stat(zipfilePath, function(err, stats) {
     if (err) throw err;
     var reader = new InefficientRandomAccessReader();
-    yauzl.fromRandomAccessReader(reader, stats.size, function(err, zipfile) {
+    yauzl.fromRandomAccessReader(reader, stats.size, {lazyEntries: true}, function(err, zipfile) {
       if (err) throw err;
       callback(null, zipfile);
     });
