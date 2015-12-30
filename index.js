@@ -60,7 +60,6 @@ function fromBuffer(buffer, options, callback) {
   if (options.lazyEntries == null) options.lazyEntries = false;
   // i got your open file right here.
   var reader = fd_slicer.createFromBuffer(buffer);
-  var options = {autoClose: false};
   fromRandomAccessReader(reader, buffer.length, options, callback);
 }
 
