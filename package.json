@@ -4,7 +4,7 @@
   "description": "yet another unzip library for node",
   "main": "index.js",
   "scripts": {
-    "test": "node test/zip64.js && node test/test.js",
+    "test": "node test/test.js",
     "test-cov": "istanbul cover test/test.js",
     "test-travis": "istanbul cover --report lcovonly test/test.js"
   },

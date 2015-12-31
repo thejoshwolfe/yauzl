@@ -1,4 +1,5 @@
 var yauzl = require("../");
+var zip64 = require("./zip64");
 var fs = require("fs");
 var path = require("path");
 var Pend = require("pend");
@@ -235,10 +236,14 @@ pend.go(function(cb) {
   });
 });
 
+// zip64
+pend.go(zip64.runTest);
+
 pend.wait(function() {
   // if you don't see this, something never happened.
   console.log("done");
 });
+
 
 function listZipFiles(dir) {
   var zipfilePaths = fs.readdirSync(dir).filter(function(filepath) {

@@ -6,6 +6,8 @@ var Readable = require("stream").Readable;
 var Writable = require("stream").Writable;
 var BufferList = require("bl");
 
+exports.runTest = runTest;
+
 function usage() {
   process.stdout.write("" +
     "zip64.js usage:\n" +
@@ -156,7 +158,9 @@ function compressFile(inputPath, outputPath) {
   }
 }
 
-function runTest() {
+var logPrefix = "test/zip64: ";
+function runTest(cb) {
+  if (cb == null) cb = function() {};
   makeRandomAccessReader(function(reader, size) {
     yauzl.fromRandomAccessReader(reader, size, function(err, zipfile) {
       if (err) throw err;
@@ -164,38 +168,47 @@ function runTest() {
       zipfile.on("entry", function(entry) {
         var expectedContents;
         if (entryIndex === 0) {
-          if (entry.fileName !== "a.txt") throw new Error("expected 'a.txt'. got '" + entry.fileName + "'.");
+          if (entry.fileName !== "a.txt") throw new Error(logPrefix + "expected 'a.txt'. got '" + entry.fileName + "'.");
           expectedContents = "hello a\n";
         } else if (entryIndex === 1) {
-          if (entry.fileName !== "large.bin") throw new Error("expected 'large.bin'. got '" + entry.fileName + "'.");
+          if (entry.fileName !== "large.bin") throw new Error(logPrefix + "expected 'large.bin'. got '" + entry.fileName + "'.");
           expectedContents = null; // special case
         } else if (entryIndex === 2) {
-          if (entry.fileName !== "b.txt") throw new Error("expected 'b.txt'. got '" + entry.fileName + "'.");
+          if (entry.fileName !== "b.txt") throw new Error(logPrefix + "expected 'b.txt'. got '" + entry.fileName + "'.");
           expectedContents = "hello b\n";
         } else {
-          throw new Error("too many entries");
+          throw new Error(logPrefix + "too many entries");
         }
         entryIndex += 1;
         zipfile.openReadStream(entry, function(err, readStream) {
           if (err) throw err;
           if (expectedContents != null) {
             readStream.pipe(BufferList(function(err, data) {
-              if (data.toString() !== expectedContents) throw new Error("expected contents:\n" + expectedContents + "\ngot:\n" + data.toString() + "\n");
-              console.log("test/zip64: " + entry.fileName + ": PASS");
+              if (data.toString() !== expectedContents) throw new Error(logPrefix + "expected contents:\n" + expectedContents + "\ngot:\n" + data.toString() + "\n");
+              console.log(logPrefix + entry.fileName + ": PASS");
             }));
           } else {
             // make sure this is the big thing
             getPrefixOfLargeBinContents(function(expectedPrefixBuffer) {
               getPrefixOfStream(readStream, function(actualPrefixBuffer) {
                 if (buffersEqual(expectedPrefixBuffer, actualPrefixBuffer)) {
-                  console.log("test/zip64: " + entry.fileName + ": PASS");
+                  console.log(logPrefix + entry.fileName + ": PASS");
                 } else {
-                  throw new Error("large.bin contents read did not return expected stream")
+                  throw new Error(logPrefix + "large.bin contents read did not return expected stream")
                 }
               });
             });
           }
         });
+      });
+      zipfile.on("close", function() {
+        console.log(logPrefix + "closed");
+        if (entryIndex === 3) {
+          console.log(logPrefix + "pass");
+          cb();
+        } else {
+          throw new Error(logPrefix + "closed prematurely");
+        }
       });
     });
   });
@@ -251,4 +264,4 @@ function buffersEqual(buf1, buf2) {
   return true;
 }
 
-cli();
+if (require.main === module) cli();
