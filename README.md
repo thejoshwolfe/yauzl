@@ -182,6 +182,7 @@ so it is safe to call this method before attaching event listeners.
 
 After calling this method, calling this method again before the response event has been emitted will cause undefined behavior.
 Calling this method after the `end` event has been emitted will cause undefined behavior.
+Calling this method after calling `close()` will cause undefined behavior.
 
 #### openReadStream(entry, callback)
 
@@ -208,10 +209,17 @@ but enforcing the `uncompressedSize` is implemented here as a security feature.
 
 Causes all future calls to `openReadStream()` to fail,
 and closes the fd after all streams created by `openReadStream()` have emitted their `end` events.
-If this object's `end` event has not been emitted yet, this function causes undefined behavior.
 
 If the `autoClose` option is set to `true` (see `open()`),
 this function will be called automatically effectively in response to this object's `end` event.
+
+If the `lazyEntries` option is set to `false` (see `open()`) and this object's `end` event has not been emitted yet,
+this function causes undefined behavior.
+If the `lazyEntries` option is set to `true`,
+you can call this function instead of calling `readEntry()` to abort reading the entries of a zipfile.
+
+It is safe to call this function multiple times; after the first call, successive calls have no effect.
+This includes situations where the `autoClose` option effectively calls this function for you.
 
 #### isOpen
 

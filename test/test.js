@@ -170,6 +170,7 @@ listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
   });
 });
 
+// fromRandomAccessReader with errors
 pend.go(function(cb) {
   util.inherits(TestRandomAccessReader, yauzl.RandomAccessReader);
   function TestRandomAccessReader() {
@@ -191,6 +192,46 @@ pend.go(function(cb) {
     } else {
       throw err;
     }
+  });
+});
+
+// read some entries, then close.
+pend.go(function(cb) {
+  var prefix = "read some entries then close: ";
+  // this zip file should have at least 3 entries in it
+  yauzl.open(path.join(__dirname, "success/unicode.zip"), {lazyEntries: true}, function(err, zipfile) {
+    if (err) throw err;
+
+    var entryCount = 0;
+
+    zipfile.readEntry();
+    zipfile.on("entry", function(entry) {
+      entryCount += 1;
+      console.log(prefix + "entryCount: " + entryCount);
+      if (entryCount < 3) {
+        zipfile.readEntry();
+      } else if (entryCount === 3) {
+        zipfile.close();
+        console.log(prefix + "close()");
+      } else {
+        throw new Error(prefix + "read too many entries");
+      }
+    });
+    zipfile.on("close", function() {
+      console.log(prefix + "closed");
+      if (entryCount === 3) {
+        console.log(prefix + "pass");
+        cb();
+      } else {
+        throw new Error(prefix + "not enough entries read before closed");
+      }
+    });
+    zipfile.on("end", function() {
+      throw new Error(prefix + "we weren't supposed to get to the end");
+    });
+    zipfile.on("error", function(err) {
+      throw err;
+    });
   });
 });
 
