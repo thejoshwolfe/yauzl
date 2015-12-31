@@ -436,3 +436,30 @@ This library provides no support for finding or interpreting it.
 Zip files officially support charset encodings other than CP437 and UTF-8,
 but the zip file spec does not specify how it works.
 This library makes no attempt to interpret the Language Encoding Flag.
+
+## Change History
+
+ * 2.4.0
+   * Add ZIP64 support. [issue #6](https://github.com/thejoshwolfe/yazl/issues/6)
+   * Add `lazyEntries` option. [issue #22](https://github.com/thejoshwolfe/yazl/issues/22)
+   * Add `readStream.destroy()` method. [issue #26](https://github.com/thejoshwolfe/yazl/issues/26)
+   * Add `fromRandomAccessReader()`. [issue #14](https://github.com/thejoshwolfe/yazl/issues/14)
+   * Add `examples/unzip.js`.
+ * 2.3.1
+   * Documentation updates.
+ * 2.3.0
+   * Check that `uncompressedSize` is correct, or else emit an error. [issue #13](https://github.com/thejoshwolfe/yazl/issues/13)
+ * 2.2.1
+   * Update dependencies.
+ * 2.2.0
+   * Update dependencies.
+ * 2.1.0
+   * Remove dependency on `iconv`.
+ * 2.0.3
+   * Fix crash when trying to read a 0-byte file.
+ * 2.0.2
+   * Fix event behavior after errors.
+ * 2.0.1
+   * Fix bug with using `iconv`.
+ * 2.0.0
+   * Initial release.
