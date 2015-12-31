@@ -414,13 +414,18 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
         var destroyed = false;
         var inflateFilter = zlib.createInflateRaw();
         readStream.on("error", function(err) {
-          if (!destroyed) inflateFilter.emit("error", err);
+          // setImmediate here because errors can be emitted during the first call to pipe()
+          setImmediate(function() {
+            if (!destroyed) inflateFilter.emit("error", err);
+          });
         });
 
         var checkerStream = new AssertByteCountStream(entry.uncompressedSize);
         inflateFilter.on("error", function(err) {
           // forward zlib errors to the client-visible stream
-          if (!destroyed) checkerStream.emit("error", err);
+          setImmediate(function() {
+            if (!destroyed) checkerStream.emit("error", err);
+          });
         });
         checkerStream.destroy = function() {
           destroyed = true;
@@ -528,7 +533,9 @@ RandomAccessReader.prototype.createReadStream = function(options) {
   var destroyed = false;
   var refUnrefFilter = new RefUnrefFilter(this);
   stream.on("error", function(err) {
-    if (!destroyed) refUnrefFilter.emit("error", err);
+    setImmediate(function() {
+      if (!destroyed) refUnrefFilter.emit("error", err);
+    });
   });
   refUnrefFilter.destroy = function() {
     stream.unpipe(refUnrefFilter);
@@ -538,7 +545,9 @@ RandomAccessReader.prototype.createReadStream = function(options) {
 
   var byteCounter = new AssertByteCountStream(end - start);
   refUnrefFilter.on("error", function(err) {
-    if (!destroyed) byteCounter.emit("error", err);
+    setImmediate(function() {
+      if (!destroyed) byteCounter.emit("error", err);
+    });
   });
   byteCounter.destroy = function() {
     destroyed = true;

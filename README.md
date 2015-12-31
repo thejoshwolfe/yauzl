@@ -439,6 +439,8 @@ This library makes no attempt to interpret the Language Encoding Flag.
 
 ## Change History
 
+ * 2.4.1
+   * Fix error handling.
  * 2.4.0
    * Add ZIP64 support. [issue #6](https://github.com/thejoshwolfe/yazl/issues/6)
    * Add `lazyEntries` option. [issue #22](https://github.com/thejoshwolfe/yazl/issues/22)
