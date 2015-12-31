@@ -442,15 +442,15 @@ This library makes no attempt to interpret the Language Encoding Flag.
  * 2.4.1
    * Fix error handling.
  * 2.4.0
-   * Add ZIP64 support. [issue #6](https://github.com/thejoshwolfe/yazl/issues/6)
-   * Add `lazyEntries` option. [issue #22](https://github.com/thejoshwolfe/yazl/issues/22)
-   * Add `readStream.destroy()` method. [issue #26](https://github.com/thejoshwolfe/yazl/issues/26)
-   * Add `fromRandomAccessReader()`. [issue #14](https://github.com/thejoshwolfe/yazl/issues/14)
+   * Add ZIP64 support. [issue #6](https://github.com/thejoshwolfe/yauzl/issues/6)
+   * Add `lazyEntries` option. [issue #22](https://github.com/thejoshwolfe/yauzl/issues/22)
+   * Add `readStream.destroy()` method. [issue #26](https://github.com/thejoshwolfe/yauzl/issues/26)
+   * Add `fromRandomAccessReader()`. [issue #14](https://github.com/thejoshwolfe/yauzl/issues/14)
    * Add `examples/unzip.js`.
  * 2.3.1
    * Documentation updates.
  * 2.3.0
-   * Check that `uncompressedSize` is correct, or else emit an error. [issue #13](https://github.com/thejoshwolfe/yazl/issues/13)
+   * Check that `uncompressedSize` is correct, or else emit an error. [issue #13](https://github.com/thejoshwolfe/yauzl/issues/13)
  * 2.2.1
    * Update dependencies.
  * 2.2.0
