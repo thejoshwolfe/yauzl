@@ -213,9 +213,11 @@ ZipFile.prototype.readEntry = function() {
   var self = this;
   if (self.entryCount === self.entriesRead) {
     // done with metadata
-    if (self.autoClose) self.close();
-    if (self.emittedError) return;
-    setImmediate(function() { self.emit("end"); });
+    setImmediate(function() {
+      if (self.autoClose) self.close();
+      if (self.emittedError) return;
+      self.emit("end");
+    });
     return;
   }
   if (self.emittedError) return;
@@ -406,17 +408,30 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
               fileDataStart + " + " + entry.compressedSize + " > " + self.fileSize));
         }
       }
-      var stream = self.reader.createReadStream({start: fileDataStart, end: fileDataEnd});
+      var readStream = self.reader.createReadStream({start: fileDataStart, end: fileDataEnd});
+      var endpointStream = readStream;
       if (compressed) {
-        var deflateFilter = zlib.createInflateRaw();
-        var checkerStream = new AssertByteCountStream(entry.uncompressedSize);
-        deflateFilter.on("error", function(err) {
-          // forward zlib errors to the client-visible stream
-          checkerStream.emit("error", err);
+        var destroyed = false;
+        var inflateFilter = zlib.createInflateRaw();
+        readStream.on("error", function(err) {
+          if (!destroyed) inflateFilter.emit("error", err);
         });
-        stream = stream.pipe(deflateFilter).pipe(checkerStream);
+
+        var checkerStream = new AssertByteCountStream(entry.uncompressedSize);
+        inflateFilter.on("error", function(err) {
+          // forward zlib errors to the client-visible stream
+          if (!destroyed) checkerStream.emit("error", err);
+        });
+        checkerStream.destroy = function() {
+          destroyed = true;
+          inflateFilter.unpipe(checkerStream);
+          readStream.unpipe(inflateFilter);
+          // TODO: the inflateFilter now causes a memory leak. see Issue #27.
+          readStream.destroy();
+        };
+        endpointStream = readStream.pipe(inflateFilter).pipe(checkerStream);
       }
-      callback(null, stream);
+      callback(null, endpointStream);
     } finally {
       self.reader.unref();
     }
@@ -509,18 +524,28 @@ RandomAccessReader.prototype.createReadStream = function(options) {
     return emptyStream;
   }
   var stream = this._readStreamForRange(start, end);
+
+  var destroyed = false;
   var refUnrefFilter = new RefUnrefFilter(this);
   stream.on("error", function(err) {
-    setImmediate(function() {
-      refUnrefFilter.emit("error", err);
-    });
+    if (!destroyed) refUnrefFilter.emit("error", err);
   });
+  refUnrefFilter.destroy = function() {
+    stream.unpipe(refUnrefFilter);
+    refUnrefFilter.unref();
+    stream.destroy();
+  };
+
   var byteCounter = new AssertByteCountStream(end - start);
   refUnrefFilter.on("error", function(err) {
-    setImmediate(function() {
-      byteCounter.emit("error", err);
-    });
+    if (!destroyed) byteCounter.emit("error", err);
   });
+  byteCounter.destroy = function() {
+    destroyed = true;
+    refUnrefFilter.unpipe(byteCounter);
+    refUnrefFilter.destroy();
+  };
+
   return stream.pipe(refUnrefFilter).pipe(byteCounter);
 };
 RandomAccessReader.prototype._readStreamForRange = function(start, end) {
@@ -550,10 +575,16 @@ function RefUnrefFilter(context) {
   PassThrough.call(this);
   this.context = context;
   this.context.ref();
+  this.unreffedYet = false;
 }
 RefUnrefFilter.prototype._flush = function(cb) {
-  this.context.unref();
+  this.unref();
   cb();
+};
+RefUnrefFilter.prototype.unref = function(cb) {
+  if (this.unreffedYet) return;
+  this.unreffedYet = true;
+  this.context.unref();
 };
 
 var cp437 = '\u0000☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼ !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~⌂ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ';

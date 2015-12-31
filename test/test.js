@@ -5,6 +5,7 @@ var path = require("path");
 var Pend = require("pend");
 var util = require("util");
 var Readable = require("stream").Readable;
+var Writable = require("stream").Writable;
 
 // this is the date i made the example zip files and their content files,
 // so this timestamp will be earlier than all the ones stored in these test zip files
@@ -229,6 +230,56 @@ pend.go(function(cb) {
     });
     zipfile.on("end", function() {
       throw new Error(prefix + "we weren't supposed to get to the end");
+    });
+    zipfile.on("error", function(err) {
+      throw err;
+    });
+  });
+});
+
+// abort open read stream
+pend.go(function(cb) {
+  var prefix = "abort open read stream: ";
+  yauzl.open(path.join(__dirname, "big-compression.zip"), {lazyEntries: true}, function(err, zipfile) {
+    if (err) throw err;
+
+    var doneWithStream = false;
+
+    zipfile.readEntry();
+    zipfile.on("entry", function(entry) {
+      zipfile.openReadStream(entry, function(err, readStream) {
+        var writer = new Writable();
+        var bytesSeen = 0;
+        writer._write = function(chunk, encoding, callback) {
+          bytesSeen += chunk.length;
+          if (bytesSeen < entry.uncompressedSize / 10) {
+            // keep piping a bit longer
+            callback();
+          } else {
+            // alright, i've seen enough.
+            doneWithStream = true;
+            console.log(prefix + "destroy()");
+            readStream.unpipe(writer);
+            readStream.destroy();
+
+            // now keep trying to use the fd
+            zipfile.readEntry();
+          }
+        };
+        readStream.pipe(writer);
+      });
+    });
+    zipfile.on("end", function() {
+      console.log(prefix + "end");
+    });
+    zipfile.on("close", function() {
+      console.log(prefix + "closed");
+      if (doneWithStream) {
+        console.log(prefix + "pass");
+        cb();
+      } else {
+        throw new Error(prefix + "closed prematurely");
+      }
     });
     zipfile.on("error", function(err) {
       throw err;

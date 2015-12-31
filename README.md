@@ -205,6 +205,13 @@ doing some heuristic checks on the size metadata and then watching out for the a
 Such heuristics are outside the scope of this library,
 but enforcing the `uncompressedSize` is implemented here as a security feature.
 
+It is possible to destroy the `readStream` before it has piped all of its data.
+To do this, call `readStream.destroy()`.
+You must `unpipe()` the `readStream` from any destination before calling `readStream.destroy()`.
+If this zipfile was created using `fromRandomAccessReader()`, the `RandomAccessReader` implementation
+must provide readable streams that implement a `.destroy()` method (see `randomAccessReader._readStreamForRange()`)
+in order for calls to `readStream.destroy()` to work in this context.
+
 #### close()
 
 Causes all future calls to `openReadStream()` to fail,
@@ -305,6 +312,15 @@ If the readable stream provides too many or too few bytes, an error will be emit
 Any errors emitted on the readable stream will be handled and re-emitted on the client-visible stream
 (returned from `zipfile.openReadStream()`) or provided as the `err` argument to the appropriate callback
 (for example, for `fromRandomAccessReader()`).
+
+The returned stream *must* implement a method `.destroy()`
+if you call `readStream.destroy()` on streams you get from `openReadStream()`.
+If you never call `readStream.destroy()`, then streams returned from this method do not need to implement a method `.destroy()`.
+`.destroy()` should abort any streaming that is in progress and clean up any associated resources.
+`.destroy()` will only be called after the stream has been `unpipe()`d from its destination.
+
+Note that the stream returned from this method might not be the same object that is provided by `openReadStream()`.
+The stream returned from this method might be `pipe()`d through one or more filter streams (for example, a zlib inflate stream).
 
 #### randomAccessReader.read(buffer, offset, length, position, callback)
 

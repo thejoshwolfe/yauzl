@@ -100,6 +100,7 @@ function newLargeBinContentsProducer() {
       if (!readStream.push(buffer)) return;
     }
   };
+  readStream.destroy = function() {};
   return readStream;
 }
 
@@ -110,8 +111,8 @@ function getPrefixOfStream(stream, cb) {
   var writer = new Writable();
   writer._write = function(chunk, encoding, callback) {
     chunk.copy(prefixBuffer, 0, 0, prefixLength);
+    stream.unpipe(writer);
     cb(prefixBuffer);
-    // abandon this pipe
   };
   stream.pipe(writer);
 }
@@ -191,6 +192,7 @@ function runTest(cb) {
             // make sure this is the big thing
             getPrefixOfLargeBinContents(function(expectedPrefixBuffer) {
               getPrefixOfStream(readStream, function(actualPrefixBuffer) {
+                readStream.destroy();
                 if (buffersEqual(expectedPrefixBuffer, actualPrefixBuffer)) {
                   console.log(logPrefix + entry.fileName + ": PASS");
                 } else {
@@ -250,6 +252,7 @@ function makeRandomAccessReader(cb) {
       } else {
         throw new Error("_readStreamForRange("+start+", "+end+") misaligned to range ["+largeBinContentsOffset+", "+largeBinContentsEnd+"]");
       }
+      result.destroy = function() {};
       return result;
     };
     var reader = new InflatingRandomAccessReader();
