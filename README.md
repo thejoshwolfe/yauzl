@@ -439,6 +439,8 @@ This library makes no attempt to interpret the Language Encoding Flag.
 
 ## Change History
 
+ * 2.4.2
+   * Remove .npmignore and .travis.yml from npm package.
  * 2.4.1
    * Fix error handling.
  * 2.4.0
