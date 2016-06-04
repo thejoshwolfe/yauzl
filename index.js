@@ -281,10 +281,12 @@ ZipFile.prototype.readEntry = function() {
       entry.extraFields = [];
       var i = 0;
       while (i < extraFieldBuffer.length) {
+        if (i >= extraFieldBuffer.length - 4) return emitErrorAndAutoClose(self, new Error("unexpected end of Extra Field buffer"));
         var headerId = extraFieldBuffer.readUInt16LE(i + 0);
         var dataSize = extraFieldBuffer.readUInt16LE(i + 2);
         var dataStart = i + 4;
         var dataEnd = dataStart + dataSize;
+        if (dataEnd > extraFieldBuffer.length) return emitErrorAndAutoClose(self, new Error("extra field length exceeds Extra Field buffer size"));
         var dataBuffer = new Buffer(dataSize);
         extraFieldBuffer.copy(dataBuffer, 0, dataStart, dataEnd);
         entry.extraFields.push({
