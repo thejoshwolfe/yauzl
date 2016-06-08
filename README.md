@@ -439,6 +439,8 @@ This library makes no attempt to interpret the Language Encoding Flag.
 
 ## Change History
 
+ * 2.5.0
+   * Ignore malformed Extra Field that is common in Android .apk files. [issue #31](https://github.com/thejoshwolfe/yauzl/issues/31)
  * 2.4.3
    * Fix crash when parsing malformed Extra Field buffers. [issue #31](https://github.com/thejoshwolfe/yauzl/issues/31)
  * 2.4.2
