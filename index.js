@@ -280,8 +280,7 @@ ZipFile.prototype.readEntry = function() {
       var extraFieldBuffer = buffer.slice(entry.fileNameLength, fileCommentStart);
       entry.extraFields = [];
       var i = 0;
-      while (i < extraFieldBuffer.length) {
-        if (i >= extraFieldBuffer.length - 4) return emitErrorAndAutoClose(self, new Error("unexpected end of Extra Field buffer"));
+      while (i < extraFieldBuffer.length - 3) {
         var headerId = extraFieldBuffer.readUInt16LE(i + 0);
         var dataSize = extraFieldBuffer.readUInt16LE(i + 2);
         var dataStart = i + 4;
