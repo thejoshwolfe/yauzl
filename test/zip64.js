@@ -186,7 +186,7 @@ function runTest(cb) {
           if (expectedContents != null) {
             readStream.pipe(BufferList(function(err, data) {
               if (data.toString() !== expectedContents) throw new Error(logPrefix + "expected contents:\n" + expectedContents + "\ngot:\n" + data.toString() + "\n");
-              console.log(logPrefix + entry.fileName + ": PASS");
+              console.log(logPrefix + entry.fileName + ": pass");
             }));
           } else {
             // make sure this is the big thing
@@ -194,7 +194,7 @@ function runTest(cb) {
               getPrefixOfStream(readStream, function(actualPrefixBuffer) {
                 readStream.destroy();
                 if (buffersEqual(expectedPrefixBuffer, actualPrefixBuffer)) {
-                  console.log(logPrefix + entry.fileName + ": PASS");
+                  console.log(logPrefix + entry.fileName + ": pass");
                 } else {
                   throw new Error(logPrefix + "large.bin contents read did not return expected stream")
                 }

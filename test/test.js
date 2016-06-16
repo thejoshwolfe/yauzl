@@ -312,6 +312,7 @@ function addUnicodeSupport(name) {
   // see https://github.com/thejoshwolfe/yauzl/issues/10
   name = name.replace(/Turmion Katilot/g, "Turmion Kätilöt");
   name = name.replace(/Mista veri pakenee/g, "Mistä veri pakenee");
+  name = name.replace(/qi ge fangjian/g, "七个房间");
   return name;
 }
 

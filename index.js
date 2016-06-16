@@ -1,6 +1,7 @@
 var fs = require("fs");
 var zlib = require("zlib");
 var fd_slicer = require("fd-slicer");
+var crc32 = require("buffer-crc32");
 var util = require("util");
 var EventEmitter = require("events").EventEmitter;
 var Transform = require("stream").Transform;
@@ -339,6 +340,34 @@ ZipFile.prototype.readEntry = function() {
           index += 8;
         }
         // 24 - Disk Start Number      4 bytes
+      }
+
+      // check for Info-ZIP Unicode Path Extra Field (0x7075)
+      // see https://github.com/thejoshwolfe/yauzl/issues/33
+      for (var i = 0; i < entry.extraFields.length; i++) {
+        var extraField = entry.extraFields[i];
+        if (extraField.id === 0x7075) {
+          if (extraField.data.length < 5) {
+            // too short to be meaningful
+            continue;
+          }
+          // Version       1 byte      version of this extra field, currently 1
+          if (extraField.data.readUInt8(0) !== 1) {
+            // > Changes may not be backward compatible so this extra
+            // > field should not be used if the version is not recognized.
+            continue;
+          }
+          // NameCRC32     4 bytes     File Name Field CRC32 Checksum
+          var oldNameCrc32 = extraField.data.readUInt32LE(1);
+          if (crc32.unsigned(buffer.slice(0, entry.fileNameLength)) !== oldNameCrc32) {
+            // > If the CRC check fails, this UTF-8 Path Extra Field should be
+            // > ignored and the File Name field in the header should be used instead.
+            continue;
+          }
+          // UnicodeName   Variable    UTF-8 version of the entry File Name
+          entry.fileName = bufferToString(extraField.data, 5, extraField.data.length, true);
+          break;
+        }
       }
 
       // validate file size
