@@ -114,7 +114,7 @@ listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
 // failure tests
 listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
   if (!shouldDoTest(zipfilePath)) return;
-  var expectedErrorMessage = path.basename(zipfilePath).replace(/\.zip$/, "");
+  var expectedErrorMessage = path.basename(zipfilePath).replace(/(_\d+)?\.zip$/, "");
   var failedYet = false;
   var emittedError = false;
   pend.go(function(cb) {
