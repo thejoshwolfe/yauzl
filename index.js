@@ -359,7 +359,7 @@ ZipFile.prototype.readEntry = function() {
       for (var i = 0; i < entry.extraFields.length; i++) {
         var extraField = entry.extraFields[i];
         if (extraField.id === 0x7075) {
-          if (extraField.data.length < 5) {
+          if (extraField.data.length < 6) {
             // too short to be meaningful
             continue;
           }
