@@ -274,11 +274,7 @@ ZipFile.prototype.readEntry = function() {
       if (self.emittedError) return;
       // 46 - File name
       var isUtf8 = entry.generalPurposeBitFlag & 0x800
-      try {
-        entry.fileName = bufferToString(buffer, 0, entry.fileNameLength, isUtf8);
-      } catch (e) {
-        return emitErrorAndAutoClose(self, e);
-      }
+      entry.fileName = bufferToString(buffer, 0, entry.fileNameLength, isUtf8);
 
       // 46+n - Extra field
       var fileCommentStart = entry.fileNameLength + entry.extraFieldLength;
@@ -301,11 +297,7 @@ ZipFile.prototype.readEntry = function() {
       }
 
       // 46+n+m - File comment
-      try {
-        entry.fileComment = bufferToString(buffer, fileCommentStart, fileCommentStart + entry.fileCommentLength, isUtf8);
-      } catch (e) {
-        return emitErrorAndAutoClose(self, e);
-      }
+      entry.fileComment = bufferToString(buffer, fileCommentStart, fileCommentStart + entry.fileCommentLength, isUtf8);
 
       self.readEntryCursor += buffer.length;
       self.entriesRead += 1;
