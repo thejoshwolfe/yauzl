@@ -102,7 +102,9 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
       // 0 - End of central directory signature = 0x06054b50
       // 4 - Number of this disk
       var diskNumber = eocdrBuffer.readUInt16LE(4);
-      if (diskNumber !== 0) return callback(new Error("multi-disk zip files are not supported: found disk number: " + diskNumber));
+      if (diskNumber !== 0) {
+        return callback(new Error("multi-disk zip files are not supported: found disk number: " + diskNumber));
+      }
       // 6 - Disk where central directory starts
       // 8 - Number of central directory records on this disk
       // 10 - Total number of central directory records
@@ -134,7 +136,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
 
         // 0 - zip64 end of central dir locator signature = 0x07064b50
         if (zip64EocdlBuffer.readUInt32LE(0) !== 0x07064b50) {
-          return callback(new Error("invalid ZIP64 End of Central Directory Locator signature"));
+          return callback(new Error("invalid zip64 end of central directory locator signature"));
         }
         // 4 - number of the disk with the start of the zip64 end of central directory
         // 8 - relative offset of the zip64 end of central directory record
@@ -147,7 +149,9 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
           if (err) return callback(err);
 
           // 0 - zip64 end of central dir signature                           4 bytes  (0x06064b50)
-          if (zip64EocdrBuffer.readUInt32LE(0) !== 0x06064b50) return callback(new Error("invalid ZIP64 end of central directory record signature"));
+          if (zip64EocdrBuffer.readUInt32LE(0) !== 0x06064b50) {
+            return callback(new Error("invalid zip64 end of central directory record signature"));
+          }
           // 4 - size of zip64 end of central directory record                8 bytes
           // 12 - version made by                                             2 bytes
           // 14 - version needed to extract                                   2 bytes
@@ -286,7 +290,7 @@ ZipFile.prototype.readEntry = function() {
         var dataSize = extraFieldBuffer.readUInt16LE(i + 2);
         var dataStart = i + 4;
         var dataEnd = dataStart + dataSize;
-        if (dataEnd > extraFieldBuffer.length) return emitErrorAndAutoClose(self, new Error("extra field length exceeds Extra Field buffer size"));
+        if (dataEnd > extraFieldBuffer.length) return emitErrorAndAutoClose(self, new Error("extra field length exceeds extra field buffer size"));
         var dataBuffer = new Buffer(dataSize);
         extraFieldBuffer.copy(dataBuffer, 0, dataStart, dataEnd);
         entry.extraFields.push({
@@ -319,23 +323,31 @@ ZipFile.prototype.readEntry = function() {
             break;
           }
         }
-        if (zip64EiefBuffer == null) return emitErrorAndAutoClose(self, new Error("expected Zip64 Extended Information Extra Field"));
+        if (zip64EiefBuffer == null) {
+          return emitErrorAndAutoClose(self, new Error("expected zip64 extended information extra field"));
+        }
         var index = 0;
         // 0 - Original Size          8 bytes
         if (entry.uncompressedSize === 0xffffffff) {
-          if (index + 8 > zip64EiefBuffer.length) return emitErrorAndAutoClose(self, new Error("Zip64 Extended Information Extra Field does not include Original Size"));
+          if (index + 8 > zip64EiefBuffer.length) {
+            return emitErrorAndAutoClose(self, new Error("zip64 extended information extra field does not include uncompressed size"));
+          }
           entry.uncompressedSize = readUInt64LE(zip64EiefBuffer, index);
           index += 8;
         }
         // 8 - Compressed Size        8 bytes
         if (entry.compressedSize === 0xffffffff) {
-          if (index + 8 > zip64EiefBuffer.length) return emitErrorAndAutoClose(self, new Error("Zip64 Extended Information Extra Field does not include Compressed Size"));
+          if (index + 8 > zip64EiefBuffer.length) {
+            return emitErrorAndAutoClose(self, new Error("zip64 extended information extra field does not include compressed size"));
+          }
           entry.compressedSize = readUInt64LE(zip64EiefBuffer, index);
           index += 8;
         }
         // 16 - Relative Header Offset 8 bytes
         if (entry.relativeOffsetOfLocalHeader === 0xffffffff) {
-          if (index + 8 > zip64EiefBuffer.length) return emitErrorAndAutoClose(self, new Error("Zip64 Extended Information Extra Field does not include Relative Header Offset"));
+          if (index + 8 > zip64EiefBuffer.length) {
+            return emitErrorAndAutoClose(self, new Error("zip64 extended information extra field does not include relative header offset"));
+          }
           entry.relativeOffsetOfLocalHeader = readUInt64LE(zip64EiefBuffer, index);
           index += 8;
         }
@@ -379,9 +391,15 @@ ZipFile.prototype.readEntry = function() {
       }
 
       // validate file name
-      if (entry.fileName.indexOf("\\") !== -1) return emitErrorAndAutoClose(self, new Error("invalid characters in fileName: " + entry.fileName));
-      if (/^[a-zA-Z]:/.test(entry.fileName) || /^\//.test(entry.fileName)) return emitErrorAndAutoClose(self, new Error("absolute path: " + entry.fileName));
-      if (entry.fileName.split("/").indexOf("..") !== -1) return emitErrorAndAutoClose(self, new Error("invalid relative path: " + entry.fileName));
+      if (entry.fileName.indexOf("\\") !== -1) {
+        return emitErrorAndAutoClose(self, new Error("invalid characters in fileName: " + entry.fileName));
+      }
+      if (/^[a-zA-Z]:/.test(entry.fileName) || /^\//.test(entry.fileName)) {
+        return emitErrorAndAutoClose(self, new Error("absolute path: " + entry.fileName));
+      }
+      if (entry.fileName.split("/").indexOf("..") !== -1) {
+        return emitErrorAndAutoClose(self, new Error("invalid relative path: " + entry.fileName));
+      }
       self.emit("entry", entry);
 
       if (!self.lazyEntries) self.readEntry();
@@ -400,7 +418,9 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
       if (err) return callback(err);
       // 0 - Local file header signature = 0x04034b50
       var signature = buffer.readUInt32LE(0);
-      if (signature !== 0x04034b50) return callback(new Error("invalid local file header signature: 0x" + signature.toString(16)));
+      if (signature !== 0x04034b50) {
+        return callback(new Error("invalid local file header signature: 0x" + signature.toString(16)));
+      }
       // all this should be redundant
       // 4 - Version needed to extract (minimum)
       // 6 - General purpose bit flag
@@ -499,7 +519,9 @@ function readAndAssertNoEof(reader, buffer, offset, length, position, callback) 
   }
   reader.read(buffer, offset, length, position, function(err, bytesRead) {
     if (err) return callback(err);
-    if (bytesRead < length) return callback(new Error("unexpected EOF"));
+    if (bytesRead < length) {
+      return callback(new Error("unexpected EOF"));
+    }
     callback();
   });
 }
