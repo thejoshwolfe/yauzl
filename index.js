@@ -275,6 +275,7 @@ ZipFile.prototype.readEntry = function() {
       // 46 - File name
       var isUtf8 = entry.generalPurposeBitFlag & 0x800
       entry.fileName = bufferToString(buffer, 0, entry.fileNameLength, isUtf8);
+      var isEncrypted = entry.generalPurposeBitFlag & 0x001;
 
       // 46+n - Extra field
       var fileCommentStart = entry.fileNameLength + entry.extraFieldLength;
@@ -375,7 +376,7 @@ ZipFile.prototype.readEntry = function() {
       }
 
       // validate file size
-      if (entry.compressionMethod === 0) {
+      if (entry.compressionMethod === 0 && !isEncrypted) {
         if (entry.compressedSize !== entry.uncompressedSize) {
           var msg = "compressed/uncompressed size mismatch for stored file: " + entry.compressedSize + " != " + entry.uncompressedSize;
           return emitErrorAndAutoClose(self, new Error(msg));
