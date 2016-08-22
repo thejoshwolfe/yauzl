@@ -275,7 +275,7 @@ ZipFile.prototype.readEntry = function() {
       // 46 - File name
       var isUtf8 = entry.generalPurposeBitFlag & 0x800
       entry.fileName = bufferToString(buffer, 0, entry.fileNameLength, isUtf8);
-      var isEncrypted = entry.generalPurposeBitFlag & 0x001;
+      var isEncrypted = entry.isEncrypted();
 
       // 46+n - Extra field
       var fileCommentStart = entry.fileNameLength + entry.extraFieldLength;
@@ -441,7 +441,7 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
         return callback(new Error("unsupported compression method: " + entry.compressionMethod));
       }
 
-      if (entry.generalPurposeBitFlag & 0x001) {
+      if (entry.isEncrypted()) {
         return callback(new Error("File is encrypted, and cannot be read"));
       }
 
@@ -495,6 +495,9 @@ function Entry() {
 }
 Entry.prototype.getLastModDate = function() {
   return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime);
+};
+Entry.prototype.isEncrypted = function() {
+  return this.generalPurposeBitFlag & 0x001;
 };
 
 function dosDateTimeToDate(date, time) {
