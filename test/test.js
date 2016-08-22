@@ -65,17 +65,27 @@ listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
           if (timestamp > new Date()) throw new Error(messagePrefix + "timestamp in the future: " + timestamp);
           var fileNameKey = entry.fileName.replace(/\/$/, "");
           var expectedContents = expectedArchiveContents[fileNameKey];
-          if (expectedContents == null) {
-            throw new Error(messagePrefix + "not supposed to exist");
-          }
           delete expectedArchiveContents[fileNameKey];
           if (entry.fileName !== fileNameKey) {
             // directory
+            if (expectedContents == null) {
+              throw new Error(messagePrefix + "not supposed to exist");
+            }
+
             console.log(messagePrefix + "pass");
+
             zipfile.readEntry();
           } else {
             zipfile.openReadStream(entry, function(err, readStream) {
-              if (err) throw err;
+              if (err) {
+                if (expectedContents == null) {
+                  console.log(messagePrefix + "pass");
+                  // Expected error. Skip to next file
+                  return zipfile.readEntry();
+                } else {
+                  throw err;
+                }
+              }
               var buffers = [];
               readStream.on("data", function(data) {
                 buffers.push(data);

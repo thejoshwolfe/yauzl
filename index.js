@@ -440,6 +440,11 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
       } else {
         return callback(new Error("unsupported compression method: " + entry.compressionMethod));
       }
+
+      if (entry.generalPurposeBitFlag & 0x001) {
+        return callback(new Error("File is encrypted, and cannot be read"));
+      }
+
       var fileDataStart = localFileHeaderEnd;
       var fileDataEnd = fileDataStart + entry.compressedSize;
       if (entry.compressedSize !== 0) {
