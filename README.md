@@ -306,6 +306,14 @@ Effectively implemented as:
 return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime);
 ```
 
+#### isEncrypted()
+
+Effectively implemented as:
+
+```js
+return this.generalPurposeBitFlag & 0x001;
+```
+
 ### Class: RandomAccessReader
 
 This class is meant to be subclassed by clients and instantiated for the `fromRandomAccessReader()` function.
@@ -408,8 +416,9 @@ By extension the following zip file fields are ignored by this library and not p
 
 ### No Encryption Support
 
-Currently, the presence of encryption is not even checked,
-and encrypted zip files will cause undefined behavior.
+This library is using zlib to unzip, and as [zlib doesn't support encryption](http://www.zlib.net/zlib_faq.html#faq38), neither does yauzl.
+When trying to read an encrypted file using `openReadStream`, its callback will be called with an error.
+Yauzl does emit `entry` events for encrypted files though, in case you need to be aware of their existence. You can call `entry.isEncrypted()` to find out if an emitted entry is encrypted.
 
 ### Local File Headers Are Ignored
 
