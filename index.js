@@ -273,7 +273,7 @@ ZipFile.prototype.readEntry = function() {
       if (err) return emitErrorAndAutoClose(self, err);
       if (self.emittedError) return;
       // 46 - File name
-      var isUtf8 = entry.generalPurposeBitFlag & 0x800
+      var isUtf8 = (entry.generalPurposeBitFlag & 0x800) !== 0;
       entry.fileName = bufferToString(buffer, 0, entry.fileNameLength, isUtf8);
 
       // 46+n - Extra field
