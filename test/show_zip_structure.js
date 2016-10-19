@@ -22,7 +22,7 @@ function readEocdr() {
     // found the eocdr
     var expectedCommentLength = zipfileBuffer.length - eocdrOffset - 22;
     reportStruct(eocdrOffset, "End of Central Directory Record", 0, [
-      [4, "End of central directory signature (0x06054b50)"],
+      [4, "End of central directory signature", {signature:0x06054b50}],
       [2, "Number of this disk"],
       [2, "Disk where central directory starts"],
       [2, "Number of central directory records on this disk"],
@@ -41,7 +41,7 @@ function readEocdr() {
       // ZIP64 format
       var zip64EocdlOffset = eocdrOffset - 20;
       reportStruct(zip64EocdlOffset, "ZIP64 End of Central Directory Locator", 0, [
-        [4, "zip64 end of central dir locator signature (0x07064b50)"],
+        [4, "zip64 end of central dir locator signature", {signature:0x07064b50}],
         [4, "number of the disk with the start of the zip64 end of central directory"],
         [8, "relative offset of the zip64 end of central directory record"],
         [4, "total number of disks"],
@@ -49,7 +49,7 @@ function readEocdr() {
 
       var zip64EocdrOffset = readUInt64LE(zipfileBuffer, zip64EocdlOffset + 8);
       reportStruct(zip64EocdrOffset, "ZIP64 End of Central Directory Record", 0, [
-        [4, "zip64 end of centrawl dir signature (0x06064b50)"],
+        [4, "zip64 end of centrawl dir signature", {signature:0x06064b50}],
         [8, "size of zip64 end of central directory record"],
         [2, "version made by"],
         [2, "version needed to extract"],
@@ -79,7 +79,7 @@ function readEocdr() {
 }
 function readCentralDirectoryRecord(offset) {
   reportStruct(offset, "Central Directory Record", 0, [
-    [4, "Central directory file header signature (0x02014b50)"],
+    [4, "Central directory file header signature", {signature:0x02014b50}],
     [2, "Version made by"],
     [2, "Version needed to extract (minimum)"],
     [2, "General purpose bit flag"],
@@ -128,9 +128,8 @@ function readCentralDirectoryRecord(offset) {
   return cursor;
 }
 function readLocalFileHeader(offset, compressedSize, isZip64) {
-  // TODO: check all the signatures
   reportStruct(offset, "Local File Header", 0, [
-    [4, "Local file header signature (0x04034b50)"],
+    [4, "Local file header signature", {signature:0x04034b50}],
     [2, "Version needed to extract (minimum)"],
     [2, "General purpose bit flag"],
     [2, "Compression method"],
@@ -164,7 +163,7 @@ function readLocalFileHeader(offset, compressedSize, isZip64) {
     var structDefinition = [];
     if (zipfileBuffer.readUInt32LE(cursor) === 0x08074b50) {
       // there's a signature
-      structDefinition.push([4, "optional signature (0x08074b50)"]);
+      structDefinition.push([4, "optional signature", {signature:0x08074b50}]);
     }
     structDefinition.push([4, "crc-32"]);
     if (isZip64) {
@@ -185,7 +184,9 @@ function readExtraFields(offset, extraFieldLength, zip64EiefOverridables) {
     var dataStart = cursor + 4;
     var dataEnd = dataStart + dataSize;
     if (dataEnd > offset + extraFieldLength) {
-      // TODO: warning?
+      warning(cursor + 2, "Extra field size exceeds extra fields bounds. truncating.");
+      dataEnd = offset + extraFieldLength;
+      dataSize = dataEnd - dataStart;
     }
     var extraFieldsDescription = null;
     if (cursor === offset) {
@@ -194,6 +195,7 @@ function readExtraFields(offset, extraFieldLength, zip64EiefOverridables) {
     }
     var sectionDescription = "Header Id";
 
+    var reported = false;
     if (headerId === 0x7075) {
       sectionDescription += " (Info-ZIP Unicode Path Extra Field)";
       reportStruct(dataStart, null, 2, [
@@ -201,6 +203,7 @@ function readExtraFields(offset, extraFieldLength, zip64EiefOverridables) {
         [4, "Name CRC32"],
       ]);
       reportBlob(dataStart + 5, null, 2, dataSize - 5, true);
+      reported = true;
     } else if (headerId === 0x0001 & zip64EiefOverridables != null) {
       sectionDescription += " (Zip64 Extended Information Extra Field)";
       var structDefinition = [];
@@ -210,46 +213,55 @@ function readExtraFields(offset, extraFieldLength, zip64EiefOverridables) {
           zip64EiefOverridables.elativeOffsetOfLocalHeader === 0xffffffff ||
           zip64EiefOverridables.iskStartNumber             === 0xffff;
       var index = 0;
-      if (zip64EiefOverridables.uncompressedSize === 0xffffffff) {
-        if (index + 8 > dataSize) {
-          // TODO: warning
+      do { // while false, just to get break that acts like goto
+        if (zip64EiefOverridables.uncompressedSize === 0xffffffff) {
+          if (index + 8 > dataSize) {
+            warning(dataStart + index, "Zip64 Extended Information Extra Field does not include Original Size");
+            break;
+          }
+          zip64EiefOverridables.uncompressedSize = readUInt64LE(zipfileBuffer, dataStart + index);
+          index += 8;
+          structDefinition.push([8, "Original Size"]); // aka uncompressed size
         }
-        zip64EiefOverridables.uncompressedSize = readUInt64LE(zipfileBuffer, dataStart + index);
-        index += 8;
-        structDefinition.push([8, "Original Size"]); // aka uncompressed size
-      }
-      if (zip64EiefOverridables.compressedSize === 0xffffffff) {
-        if (index + 8 > dataSize) {
-          // TODO: warning
+        if (zip64EiefOverridables.compressedSize === 0xffffffff) {
+          if (index + 8 > dataSize) {
+            warning(dataStart + index, "Zip64 Extended Information Extra Field does not include Compressed Size");
+            break;
+          }
+          zip64EiefOverridables.compressedSize = readUInt64LE(zipfileBuffer, dataStart + index);
+          index += 8;
+          structDefinition.push([8, "Compressed Size"]);
         }
-        zip64EiefOverridables.compressedSize = readUInt64LE(zipfileBuffer, dataStart + index);
-        index += 8;
-        structDefinition.push([8, "Compressed Size"]);
-      }
-      if (zip64EiefOverridables.relativeOffsetOfLocalHeader === 0xffffffff) {
-        if (index + 8 > dataSize) {
-          // TODO: warning
+        if (zip64EiefOverridables.relativeOffsetOfLocalHeader === 0xffffffff) {
+          if (index + 8 > dataSize) {
+            warning(dataStart + index, "Zip64 Extended Information Extra Field does not include Relative Header Offset");
+            break;
+          }
+          zip64EiefOverridables.relativeOffsetOfLocalHeader = readUInt64LE(zipfileBuffer, dataStart + index);
+          index += 8;
+          structDefinition.push([8, "Relative Header Offset"]);
         }
-        zip64EiefOverridables.relativeOffsetOfLocalHeader = readUInt64LE(zipfileBuffer, dataStart + index);
-        index += 8;
-        structDefinition.push([8, "Relative Header Offset"]);
-      }
-      if (zip64EiefOverridables.diskStartNumber === 0xffff) {
-        if (index + 4 > dataSize) {
-          // TODO: warning
+        if (zip64EiefOverridables.diskStartNumber === 0xffff) {
+          if (index + 4 > dataSize) {
+            warning(dataStart + index, "Zip64 Extended Information Extra Field does not include Disk Start Number");
+            break;
+          }
+          zip64EiefOverridables.diskStartNumber = readUInt64LE(zipfileBuffer, dataStart + index);
+          index += 4;
+          structDefinition.push([4, "Disk Start Number"]);
         }
-        zip64EiefOverridables.diskStartNumber = readUInt64LE(zipfileBuffer, dataStart + index);
-        index += 4;
-        structDefinition.push([4, "Disk Start Number"]);
-      }
 
-      reportStruct(dataStart, null, 2, structDefinition);
-
-    } else {
+        reportStruct(dataStart, null, 2, structDefinition);
+        reported = true;
+      } while (false);
+    }
+    if (!reported) {
       // unrecognized
       reportBlob(dataStart, null, 2, dataSize, false);
     }
 
+    // finally report the header back where it was supposed to be,
+    // now that we have more information on its description
     reportStruct(cursor, extraFieldsDescription, 1, [
       [2, sectionDescription],
       [2, "Data Size"],
@@ -314,6 +326,7 @@ function reportStruct(offset, description, indentation, structDefinition) {
   for (var i = 0; i < structDefinition.length; i++) {
     var fieldSize = structDefinition[i][0];
     var fieldName = structDefinition[i][1];
+    var options   = structDefinition[i][2] || {};
     // includes string representation
     var row = formatBlob(offset + cursor, fieldSize, false, false);
     var value;
@@ -326,6 +339,9 @@ function reportStruct(offset, description, indentation, structDefinition) {
     } else if (fieldSize === 8) {
       value = readUInt64LE(zipfileBuffer, offset + cursor);
     } else throw new Error("bad fieldSize");
+    if (options.signature != null && value !== options.signature) {
+      warning(offset + cursor, "signature mismatch. expected 0x" + options.signature.toString(16) + ", got 0x" + value.toString(16));
+    }
     if (value < Number.MAX_SAFE_INTEGER) {
       // base 10
       row.push("= " + value.toString());
@@ -339,22 +355,48 @@ function reportStruct(offset, description, indentation, structDefinition) {
   }
   reports.push({offset:offset, len:cursor, description:description, rows:rows, indentation:indentation});
 }
+
+function warning(offset, msg) {
+  reports.push({offset:offset, warning:msg});
+}
 function printEverything() {
+
+  // first find gaps and overlaps
   reports.sort(function(a, b) { return a.offset - b.offset; });
   var cursor = 0;
-  var firstLine = true;
-  reports.forEach(function(report) {
+  for (var i = 0; i < reports.length; i++) {
+    var report = reports[i];
     var offset = report.offset;
+    if (report.len == null) continue;
     if (cursor < offset) {
-      console.log("; (omitted " + (offset - cursor) + " bytes)");
-      firstLine = false;
+      // gap
+      reportBlob(cursor, "(unused data)", 0, offset - cursor, false);
       cursor = offset;
     } else if (cursor > offset) {
-      console.log("; (overlapping " + (cursor - offset) + " bytes)");
+      // overlap
+      warning(offset, "overlapping " + (cursor - offset) + " bytes of data used for multiple interpretations");
       firstLine = false;
       cursor = offset;
     }
+
+    cursor += report.len;
+  }
+
+  // now process the data proper
+  reports.sort(function(a, b) { return a.offset - b.offset; });
+  cursor = 0;
+  var firstLine = true;
+  reports.forEach(function(report) {
+    var offset = report.offset;
     if (offset === zipfileBuffer.length) return;
+
+    if (report.len == null) {
+      if (report.warning != null) {
+        console.log("; WARNING(" + formatOffset(report.offset) + "): " + report.warning);
+        return;
+      }
+      throw new Error("what kind of report is this: " + JSON.stringif(report));
+    }
 
     var indentation = ljust("", report.indentation * 2);
     if (report.description != null) {
