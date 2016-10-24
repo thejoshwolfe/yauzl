@@ -275,6 +275,7 @@ ZipFile.prototype.readEntry = function() {
       // 46 - File name
       var isUtf8 = (entry.generalPurposeBitFlag & 0x800) !== 0;
       entry.fileName = bufferToString(buffer, 0, entry.fileNameLength, isUtf8);
+      var isEncrypted = entry.isEncrypted();
 
       // 46+n - Extra field
       var fileCommentStart = entry.fileNameLength + entry.extraFieldLength;
@@ -375,7 +376,7 @@ ZipFile.prototype.readEntry = function() {
       }
 
       // validate file size
-      if (entry.compressionMethod === 0) {
+      if (entry.compressionMethod === 0 && !isEncrypted) {
         if (entry.compressedSize !== entry.uncompressedSize) {
           var msg = "compressed/uncompressed size mismatch for stored file: " + entry.compressedSize + " != " + entry.uncompressedSize;
           return emitErrorAndAutoClose(self, new Error(msg));
@@ -439,6 +440,11 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
       } else {
         return callback(new Error("unsupported compression method: " + entry.compressionMethod));
       }
+
+      if (entry.isEncrypted()) {
+        return callback(new Error("File is encrypted, and cannot be read"));
+      }
+
       var fileDataStart = localFileHeaderEnd;
       var fileDataEnd = fileDataStart + entry.compressedSize;
       if (entry.compressedSize !== 0) {
@@ -489,6 +495,9 @@ function Entry() {
 }
 Entry.prototype.getLastModDate = function() {
   return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime);
+};
+Entry.prototype.isEncrypted = function() {
+  return this.generalPurposeBitFlag & 0x001;
 };
 
 function dosDateTimeToDate(date, time) {
