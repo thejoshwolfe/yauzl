@@ -13,6 +13,7 @@ exports.fromFd = fromFd;
 exports.fromBuffer = fromBuffer;
 exports.fromRandomAccessReader = fromRandomAccessReader;
 exports.dosDateTimeToDate = dosDateTimeToDate;
+exports.validateFileName = validateFileName;
 exports.ZipFile = ZipFile;
 exports.Entry = Entry;
 exports.RandomAccessReader = RandomAccessReader;
@@ -25,6 +26,7 @@ function open(path, options, callback) {
   if (options == null) options = {};
   if (options.autoClose == null) options.autoClose = true;
   if (options.lazyEntries == null) options.lazyEntries = false;
+  if (options.decodeStrings == null) options.decodeStrings = true;
   if (callback == null) callback = defaultCallback;
   fs.open(path, "r", function(err, fd) {
     if (err) return callback(err);
@@ -43,6 +45,7 @@ function fromFd(fd, options, callback) {
   if (options == null) options = {};
   if (options.autoClose == null) options.autoClose = false;
   if (options.lazyEntries == null) options.lazyEntries = false;
+  if (options.decodeStrings == null) options.decodeStrings = true;
   if (callback == null) callback = defaultCallback;
   fs.fstat(fd, function(err, stats) {
     if (err) return callback(err);
@@ -59,6 +62,7 @@ function fromBuffer(buffer, options, callback) {
   if (options == null) options = {};
   options.autoClose = false;
   if (options.lazyEntries == null) options.lazyEntries = false;
+  if (options.decodeStrings == null) options.decodeStrings = true;
   // i got your open file right here.
   var reader = fd_slicer.createFromBuffer(buffer);
   fromRandomAccessReader(reader, buffer.length, options, callback);
@@ -72,6 +76,8 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
   if (options == null) options = {};
   if (options.autoClose == null) options.autoClose = true;
   if (options.lazyEntries == null) options.lazyEntries = false;
+  if (options.decodeStrings == null) options.decodeStrings = true;
+  var decodeStrings = !!options.decodeStrings;
   if (callback == null) callback = defaultCallback;
   if (typeof totalSize !== "number") throw new Error("expected totalSize parameter to be a number");
   if (totalSize > Number.MAX_SAFE_INTEGER) {
@@ -120,10 +126,11 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
       }
       // 22 - Comment
       // the encoding is always cp437.
-      var comment = bufferToString(eocdrBuffer, 22, eocdrBuffer.length, false);
+      var comment = decodeStrings ? decodeBuffer(eocdrBuffer, 22, eocdrBuffer.length, false)
+                                  : eocdrBuffer.slice(22);
 
       if (!(entryCount === 0xffff || centralDirectoryOffset === 0xffffffff)) {
-        return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries));
+        return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings));
       }
 
       // ZIP64 format
@@ -164,7 +171,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
           // 48 - offset of start of central directory with respect to the starting disk number     8 bytes
           centralDirectoryOffset = readUInt64LE(zip64EocdrBuffer, 48);
           // 56 - zip64 extensible data sector                                (variable size)
-          return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries));
+          return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings));
         });
       });
       return;
@@ -174,7 +181,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
 }
 
 util.inherits(ZipFile, EventEmitter);
-function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, autoClose, lazyEntries) {
+function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, autoClose, lazyEntries, decodeStrings) {
   var self = this;
   EventEmitter.call(self);
   self.reader = reader;
@@ -193,6 +200,7 @@ function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, 
   self.entriesRead = 0;
   self.autoClose = !!autoClose;
   self.lazyEntries = !!lazyEntries;
+  self.decodeStrings = !!decodeStrings;
   self.isOpen = true;
   self.emittedError = false;
 
@@ -274,7 +282,8 @@ ZipFile.prototype.readEntry = function() {
       if (self.emittedError) return;
       // 46 - File name
       var isUtf8 = (entry.generalPurposeBitFlag & 0x800) !== 0;
-      entry.fileName = bufferToString(buffer, 0, entry.fileNameLength, isUtf8);
+      entry.fileName = self.decodeStrings ? decodeBuffer(buffer, 0, entry.fileNameLength, isUtf8)
+                                          : buffer.slice(0, entry.fileNameLength);
 
       // 46+n - Extra field
       var fileCommentStart = entry.fileNameLength + entry.extraFieldLength;
@@ -297,7 +306,10 @@ ZipFile.prototype.readEntry = function() {
       }
 
       // 46+n+m - File comment
-      entry.fileComment = bufferToString(buffer, fileCommentStart, fileCommentStart + entry.fileCommentLength, isUtf8);
+      entry.fileComment = self.decodeStrings ? decodeBuffer(buffer, fileCommentStart, fileCommentStart + entry.fileCommentLength, isUtf8)
+                                             : buffer.slice(fileCommentStart, fileCommentStart + entry.fileCommentLength);
+      // compatibility hack for https://github.com/thejoshwolfe/yauzl/issues/47
+      entry.comment = entry.fileComment;
 
       self.readEntryCursor += buffer.length;
       self.entriesRead += 1;
@@ -348,29 +360,31 @@ ZipFile.prototype.readEntry = function() {
 
       // check for Info-ZIP Unicode Path Extra Field (0x7075)
       // see https://github.com/thejoshwolfe/yauzl/issues/33
-      for (var i = 0; i < entry.extraFields.length; i++) {
-        var extraField = entry.extraFields[i];
-        if (extraField.id === 0x7075) {
-          if (extraField.data.length < 6) {
-            // too short to be meaningful
-            continue;
+      if (self.decodeStrings) {
+        for (var i = 0; i < entry.extraFields.length; i++) {
+          var extraField = entry.extraFields[i];
+          if (extraField.id === 0x7075) {
+            if (extraField.data.length < 6) {
+              // too short to be meaningful
+              continue;
+            }
+            // Version       1 byte      version of this extra field, currently 1
+            if (extraField.data.readUInt8(0) !== 1) {
+              // > Changes may not be backward compatible so this extra
+              // > field should not be used if the version is not recognized.
+              continue;
+            }
+            // NameCRC32     4 bytes     File Name Field CRC32 Checksum
+            var oldNameCrc32 = extraField.data.readUInt32LE(1);
+            if (crc32.unsigned(buffer.slice(0, entry.fileNameLength)) !== oldNameCrc32) {
+              // > If the CRC check fails, this UTF-8 Path Extra Field should be
+              // > ignored and the File Name field in the header should be used instead.
+              continue;
+            }
+            // UnicodeName   Variable    UTF-8 version of the entry File Name
+            entry.fileName = decodeBuffer(extraField.data, 5, extraField.data.length, true);
+            break;
           }
-          // Version       1 byte      version of this extra field, currently 1
-          if (extraField.data.readUInt8(0) !== 1) {
-            // > Changes may not be backward compatible so this extra
-            // > field should not be used if the version is not recognized.
-            continue;
-          }
-          // NameCRC32     4 bytes     File Name Field CRC32 Checksum
-          var oldNameCrc32 = extraField.data.readUInt32LE(1);
-          if (crc32.unsigned(buffer.slice(0, entry.fileNameLength)) !== oldNameCrc32) {
-            // > If the CRC check fails, this UTF-8 Path Extra Field should be
-            // > ignored and the File Name field in the header should be used instead.
-            continue;
-          }
-          // UnicodeName   Variable    UTF-8 version of the entry File Name
-          entry.fileName = bufferToString(extraField.data, 5, extraField.data.length, true);
-          break;
         }
       }
 
@@ -382,15 +396,9 @@ ZipFile.prototype.readEntry = function() {
         }
       }
 
-      // validate file name
-      if (entry.fileName.indexOf("\\") !== -1) {
-        return emitErrorAndAutoClose(self, new Error("invalid characters in fileName: " + entry.fileName));
-      }
-      if (/^[a-zA-Z]:/.test(entry.fileName) || /^\//.test(entry.fileName)) {
-        return emitErrorAndAutoClose(self, new Error("absolute path: " + entry.fileName));
-      }
-      if (entry.fileName.split("/").indexOf("..") !== -1) {
-        return emitErrorAndAutoClose(self, new Error("invalid relative path: " + entry.fileName));
+      if (self.decodeStrings) {
+        var errorMessage = validateFileName(entry.fileName);
+        if (errorMessage != null) return emitErrorAndAutoClose(self, new Error(errorMessage));
       }
       self.emit("entry", entry);
 
@@ -503,6 +511,20 @@ function dosDateTimeToDate(date, time) {
 
   return new Date(year, month, day, hour, minute, second, millisecond);
 }
+
+function validateFileName(fileName) {
+  if (fileName.indexOf("\\") !== -1) {
+    return "invalid characters in fileName: " + fileName;
+  }
+  if (/^[a-zA-Z]:/.test(fileName) || /^\//.test(fileName)) {
+    return "absolute path: " + fileName;
+  }
+  if (fileName.split("/").indexOf("..") !== -1) {
+    return "invalid relative path: " + fileName;
+  }
+  // all good
+  return null;
+};
 
 function readAndAssertNoEof(reader, buffer, offset, length, position, callback) {
   if (length === 0) {
@@ -641,7 +663,7 @@ RefUnrefFilter.prototype.unref = function(cb) {
 };
 
 var cp437 = '\u0000☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼ !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~⌂ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ';
-function bufferToString(buffer, start, end, isUtf8) {
+function decodeBuffer(buffer, start, end, isUtf8) {
   if (isUtf8) {
     return buffer.toString("utf8", start, end);
   } else {

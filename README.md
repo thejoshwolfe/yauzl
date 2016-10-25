@@ -19,8 +19,7 @@ Design principles:
  * Never crash (if used properly).
    Don't let malformed zip files bring down client applications who are trying to catch errors.
  * Catch unsafe file names.
-   A zip file entry throws an error if its file name starts with `"/"` or `/[A-Za-z]:\//`
-   or if it contains `".."` path segments or `"\\"` (per the spec).
+   See `validateFileName()`.
 
 ## Usage
 
@@ -70,9 +69,9 @@ function defaultCallback(err) {
 
 ### open(path, [options], [callback])
 
-Calls `fs.open(path, "r")` and gives the `fd`, `options`, and `callback` to `fromFd()` below.
+Calls `fs.open(path, "r")` and reads the `fd` effectively the same as `fromFd()` would.
 
-`options` may be omitted or `null`. The defaults are `{autoClose: true, lazyEntries: false}`.
+`options` may be omitted or `null`. The defaults are `{autoClose: true, lazyEntries: false, decodeStrings: true}`.
 
 `autoClose` is effectively equivalent to:
 
@@ -90,45 +89,54 @@ See [issue #22](https://github.com/thejoshwolfe/yauzl/issues/22).
 If `lazyEntries` is `true`, an `entry` or `end` event will be emitted in response to each call to `readEntry()`.
 This allows processing of one entry at a time, and will keep memory usage under control for zip files with many entries.
 
+`decodeStrings` is the default and causes yauzl to decode strings with `CP437` or `UTF-8` as required by the spec.
+The exact effects of turning this option off are:
+
+* `zipfile.comment`, `entry.fileName`, and `entry.fileComment` will be `Buffer` objects instead of `String`s.
+* Any Info-ZIP Unicode Path Extra Field will be ignored. See `extraFields`.
+* Automatic file name validation will not be performed. See `validateFileName()`.
+
+The `callback` is given the arguments `(err, zipfile)`.
+An `err` is provided if the End of Central Directory Record cannot be found, or if its metadata appears malformed.
+This kind of error usually indicates that this is not a zip file.
+Otherwise, `zipfile` is an instance of `ZipFile`.
+
 ### fromFd(fd, [options], [callback])
 
 Reads from the fd, which is presumed to be an open .zip file.
 Note that random access is required by the zip file specification,
 so the fd cannot be an open socket or any other fd that does not support random access.
 
-The `callback` is given the arguments `(err, zipfile)`.
-An `err` is provided if the End of Central Directory Record Signature cannot be found in the file,
-which indicates that the fd is not a zip file.
-`zipfile` is an instance of `ZipFile`.
+`options` may be omitted or `null`. The defaults are `{autoClose: false, lazyEntries: false, decodeStrings: true}`.
 
-`options` may be omitted or `null`. The defaults are `{autoClose: false, lazyEntries: false}`.
-See `open()` for the meaning of the options.
+See `open()` for the meaning of the options and callback.
 
 ### fromBuffer(buffer, [options], [callback])
 
 Like `fromFd()`, but reads from a RAM buffer instead of an open file.
 `buffer` is a `Buffer`.
-`callback` is effectively passed directly to `fromFd()`.
 
 If a `ZipFile` is acquired from this method,
 it will never emit the `close` event,
 and calling `close()` is not necessary.
 
-`options` may be omitted or `null`. The defaults are `{lazyEntries: false}`.
-See `open()` for the meaning of the options.
+`options` may be omitted or `null`. The defaults are `{lazyEntries: false, decodeStrings: true}`.
+
+See `open()` for the meaning of the options and callback.
 The `autoClose` option is ignored for this method.
 
 ### fromRandomAccessReader(reader, totalSize, [options], [callback])
 
-This method of creating a zip file allows clients to implement their own back-end file system.
+This method of reading a zip file allows clients to implement their own back-end file system.
 For example, a client might translate read calls into network requests.
 
 The `reader` parameter must be of a type that is a subclass of
 [RandomAccessReader](#class-randomaccessreader) that implements the required methods.
 The `totalSize` is a Number and indicates the total file size of the zip file.
 
-`options` may be omitted or `null`. The defaults are `{autoClose: true, lazyEntries: false}`.
-See `open()` for the meaning of the options.
+`options` may be omitted or `null`. The defaults are `{autoClose: true, lazyEntries: false, decodeStrings: true}`.
+
+See `open()` for the meaning of the options and callback.
 
 ### dosDateTimeToDate(date, time)
 
@@ -136,6 +144,20 @@ Converts MS-DOS `date` and `time` data into a JavaScript `Date` object.
 Each parameter is a `Number` treated as an unsigned 16-bit integer.
 Note that this format does not support timezones,
 so the returned object will use the local timezone.
+
+### validateFileName(fileName)
+
+Returns `null` or a `String` error message depending on the validity of `fileName`.
+If `fileName` starts with `"/"` or `/[A-Za-z]:\//` or if it contains `".."` path segments or `"\\"`,
+this function returns an error message appropriate for use like this:
+
+```js
+var errorMessage = yauzl.validateFileName(fileName);
+if (errorMessage != null) throw new Error(errorMessage);
+```
+
+This function is automatically run for each entry, as long as `decodeStrings` is `true`.
+See `open()` and `Event: "entry"` for more information.
 
 ### Class: ZipFile
 
@@ -146,6 +168,9 @@ Use `open()`, `fromFd()`, `fromBuffer()`, or `fromRandomAccessReader()` instead.
 
 Callback gets `(entry)`, which is an `Entry`.
 See `open()` and `readEntry()` for when this event is emitted.
+
+If `decodeStrings` is `true`, entries emitted via this event have already passed file name validation.
+See `validateFileName()` and `open()` for more information.
 
 #### Event: "end"
 
@@ -240,6 +265,8 @@ This includes situations where the `autoClose` option effectively calls this fun
 
 `String`. Always decoded with `CP437` per the spec.
 
+If `decodeStrings` is `false` (see `open()`), this field is the undecoded `Buffer` instead of a decoded `String`.
+
 ### Class: Entry
 
 Objects of this class represent Central Directory Records.
@@ -271,8 +298,12 @@ Following the spec, the bytes for the file name are decoded with
 Alternatively, this field may be populated from the Info-ZIP Unicode Path Extra Field
 (see `extraFields`).
 
-If `fileName` would contain unsafe characters, such as an absolute path or
-a relative directory, yauzl emits an error instead of an entry.
+This field is automatically validated by `validateFileName()` before yauzl emits an "entry" event.
+If this field would contain unsafe characters, yauzl emits an error instead of an entry.
+
+If `decodeStrings` is `false` (see `open()`), this field is the undecoded `Buffer` instead of a decoded `String`.
+Therefore, `generalPurposeBitFlag` and any Info-ZIP Unicode Path Extra Field are ignored.
+Furthermore, no automatic file name validation is performed for this file name.
 
 #### extraFields
 
@@ -288,15 +319,21 @@ to convey `UTF-8` file names.
 When the field is identified and verified to be reliable (see the zipfile spec),
 the the file name in this field is stored in the `fileName` property,
 and the file name in the central directory record for this entry is ignored.
+Note that when `decodeStrings` is false, all Info-ZIP Unicode Path Extra Fields are ignored.
 
 None of the other fields are considered significant by this library.
 Fields that this library reads are left unalterned in the `extraFields` array.
 
-#### comment
+#### fileComment
 
-`String` decoded with the the charset indicated by `generalPurposeBitFlag & 0x800`
-as with the `fileName`.
+`String` decoded with the charset indicated by `generalPurposeBitFlag & 0x800` as with the `fileName`.
 (The Info-ZIP Unicode Path Extra Field has no effect on the charset used for this field.)
+
+If `decodeStrings` is `false` (see `open()`), this field is the undecoded `Buffer` instead of a decoded `String`.
+
+Prior to yauzl version 2.7.0, this field was erroneously documented as `comment` instead of `fileComment`.
+For compatibility with any code that uses the field name `comment`,
+yauzl creates an alias field named `comment` which is identical to `fileComment`.
 
 #### getLastModDate()
 
@@ -453,6 +490,9 @@ This library makes no attempt to interpret the Language Encoding Flag.
 
 ## Change History
 
+ * 2.7.0
+   * Added option `decodeStrings`. [issue #42](https://github.com/thejoshwolfe/yauzl/issues/42)
+   * Fixed documentation for `entry.fileComment` and added compatibility alias. [issue #47](https://github.com/thejoshwolfe/yauzl/issues/47)
  * 2.6.0
    * Support Info-ZIP Unicode Path Extra Field, used by WinRAR for Chinese file names. [issue #33](https://github.com/thejoshwolfe/yauzl/issues/33)
  * 2.5.0

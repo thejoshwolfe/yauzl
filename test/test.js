@@ -26,85 +26,100 @@ function shouldDoTest(testPath) {
 // success tests
 listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
   if (!shouldDoTest(zipfilePath)) return;
+  var optionConfigurations = [
+    // you can find more options coverage in the failure tests.
+    {lazyEntries: true},
+    {lazyEntries: true, decodeStrings: false},
+  ];
   var openFunctions = [
-    function(testId, callback) { yauzl.open(zipfilePath, {lazyEntries: true}, callback); },
-    function(testId, callback) { yauzl.fromBuffer(fs.readFileSync(zipfilePath), {lazyEntries: true}, callback); },
-    function(testId, callback) { openWithRandomAccess(zipfilePath, true, testId, callback); },
-    function(testId, callback) { openWithRandomAccess(zipfilePath, false, testId, callback); },
+    function(testId, options, callback) { yauzl.open(zipfilePath, options, callback); },
+    function(testId, options, callback) { yauzl.fromBuffer(fs.readFileSync(zipfilePath), options, callback); },
+    function(testId, options, callback) { openWithRandomAccess(zipfilePath, options, true, testId, callback); },
+    function(testId, options, callback) { openWithRandomAccess(zipfilePath, options, false, testId, callback); },
   ];
   openFunctions.forEach(function(openFunction, i) {
-    var testId = zipfilePath + "(" + ["fd", "buffer", "randomAccess", "minimalRandomAccess"][i] + "): ";
-    var expectedPathPrefix = zipfilePath.replace(/\.zip$/, "");
-    var expectedArchiveContents = {};
-    var DIRECTORY = 1; // not a string
-    recursiveRead(".");
-    function recursiveRead(name) {
-      // windows support? whatever.
-      var name = name.replace(/\\/g, "/");
-      var key = addUnicodeSupport(name);
-      var realPath = path.join(expectedPathPrefix, name);
-      if (fs.statSync(realPath).isFile()) {
-        if (path.basename(name) !== ".git_please_make_this_directory") {
-          expectedArchiveContents[key] = fs.readFileSync(realPath);
+    optionConfigurations.forEach(function(options, j) {
+      var testId = zipfilePath + "(" + ["fd", "buffer", "randomAccess", "minimalRandomAccess"][i] + "," + j + "): ";
+      var expectedPathPrefix = zipfilePath.replace(/\.zip$/, "");
+      var expectedArchiveContents = {};
+      var DIRECTORY = 1; // not a string
+      recursiveRead(".");
+      function recursiveRead(name) {
+        // windows support? whatever.
+        var name = name.replace(/\\/g, "/");
+        var key = addUnicodeSupport(name);
+        var realPath = path.join(expectedPathPrefix, name);
+        if (fs.statSync(realPath).isFile()) {
+          if (path.basename(name) !== ".git_please_make_this_directory") {
+            expectedArchiveContents[key] = fs.readFileSync(realPath);
+          }
+        } else {
+          if (name !== ".") expectedArchiveContents[key] = DIRECTORY;
+          fs.readdirSync(realPath).forEach(function(child) {
+            recursiveRead(path.join(name, child));
+          });
         }
-      } else {
-        if (name !== ".") expectedArchiveContents[key] = DIRECTORY;
-        fs.readdirSync(realPath).forEach(function(child) {
-          recursiveRead(path.join(name, child));
-        });
       }
-    }
-    pend.go(function(zipfileCallback) {
-      openFunction(testId, function(err, zipfile) {
-        if (err) throw err;
-        zipfile.readEntry();
-        zipfile.on("entry", function(entry) {
-          var messagePrefix = testId + entry.fileName + ": ";
-          var timestamp = entry.getLastModDate();
-          if (timestamp < earliestTimestamp) throw new Error(messagePrefix + "timestamp too early: " + timestamp);
-          if (timestamp > new Date()) throw new Error(messagePrefix + "timestamp in the future: " + timestamp);
-          var fileNameKey = entry.fileName.replace(/\/$/, "");
-          var expectedContents = expectedArchiveContents[fileNameKey];
-          if (expectedContents == null) {
-            throw new Error(messagePrefix + "not supposed to exist");
-          }
-          delete expectedArchiveContents[fileNameKey];
-          if (entry.fileName !== fileNameKey) {
-            // directory
-            console.log(messagePrefix + "pass");
-            zipfile.readEntry();
-          } else {
-            zipfile.openReadStream(entry, function(err, readStream) {
-              if (err) throw err;
-              var buffers = [];
-              readStream.on("data", function(data) {
-                buffers.push(data);
+      pend.go(function(zipfileCallback) {
+        openFunction(testId, options, function(err, zipfile) {
+          if (err) throw err;
+          zipfile.readEntry();
+          zipfile.on("entry", function(entry) {
+            var fileName = entry.fileName;
+            var fileComment = entry.fileComment;
+            if (options.decodeStrings === false) {
+              if (fileName.constructor !== Buffer) throw new Error(testId + "expected fileName to be a Buffer");
+              fileName = manuallyDecodeFileName(fileName);
+              fileComment = manuallyDecodeFileName(fileComment);
+            }
+            if (fileComment !== "") throw new Error(testId + "expected empty fileComment");
+            var messagePrefix = testId + fileName + ": ";
+            var timestamp = entry.getLastModDate();
+            if (timestamp < earliestTimestamp) throw new Error(messagePrefix + "timestamp too early: " + timestamp);
+            if (timestamp > new Date()) throw new Error(messagePrefix + "timestamp in the future: " + timestamp);
+            var fileNameKey = fileName.replace(/\/$/, "");
+            var expectedContents = expectedArchiveContents[fileNameKey];
+            if (expectedContents == null) {
+              throw new Error(messagePrefix + "not supposed to exist");
+            }
+            delete expectedArchiveContents[fileNameKey];
+            if (fileName !== fileNameKey) {
+              // directory
+              console.log(messagePrefix + "pass");
+              zipfile.readEntry();
+            } else {
+              zipfile.openReadStream(entry, function(err, readStream) {
+                if (err) throw err;
+                var buffers = [];
+                readStream.on("data", function(data) {
+                  buffers.push(data);
+                });
+                readStream.on("end", function() {
+                  var actualContents = Buffer.concat(buffers);
+                  // uh. there's no buffer equality check?
+                  var equal = actualContents.toString("binary") === expectedContents.toString("binary");
+                  if (!equal) {
+                    throw new Error(messagePrefix + "wrong contents");
+                  }
+                  console.log(messagePrefix + "pass");
+                  zipfile.readEntry();
+                });
+                readStream.on("error", function(err) {
+                  throw err;
+                });
               });
-              readStream.on("end", function() {
-                var actualContents = Buffer.concat(buffers);
-                // uh. there's no buffer equality check?
-                var equal = actualContents.toString("binary") === expectedContents.toString("binary");
-                if (!equal) {
-                  throw new Error(messagePrefix + "wrong contents");
-                }
-                console.log(messagePrefix + "pass");
-                zipfile.readEntry();
-              });
-              readStream.on("error", function(err) {
-                throw err;
-              });
-            });
-          }
-        });
-        zipfile.on("end", function() {
-          for (var fileName in expectedArchiveContents) {
-            throw new Error(testId + fileName + ": missing file");
-          }
-          console.log(testId + "pass");
-          zipfileCallback();
-        });
-        zipfile.on("close", function() {
-          console.log(testId + "closed");
+            }
+          });
+          zipfile.on("end", function() {
+            for (var fileName in expectedArchiveContents) {
+              throw new Error(testId + fileName + ": missing file");
+            }
+            console.log(testId + "pass");
+            zipfileCallback();
+          });
+          zipfile.on("close", function() {
+            console.log(testId + "closed");
+          });
         });
       });
     });
@@ -316,7 +331,18 @@ function addUnicodeSupport(name) {
   return name;
 }
 
-function openWithRandomAccess(zipfilePath, implementRead, testId, callback) {
+function manuallyDecodeFileName(fileName) {
+  // file names in this test suite are always utf8 compatible.
+  fileName = fileName.toString("utf8");
+  if (fileName === "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f") {
+    // we're not doing the unicode path extra field decoding outside of yauzl.
+    // just hardcode this answer.
+    fileName = "七个房间.txt"
+  }
+  return fileName;
+}
+
+function openWithRandomAccess(zipfilePath, options, implementRead, testId, callback) {
   util.inherits(InefficientRandomAccessReader, yauzl.RandomAccessReader);
   function InefficientRandomAccessReader() {
     yauzl.RandomAccessReader.call(this);
@@ -346,7 +372,7 @@ function openWithRandomAccess(zipfilePath, implementRead, testId, callback) {
   fs.stat(zipfilePath, function(err, stats) {
     if (err) throw err;
     var reader = new InefficientRandomAccessReader();
-    yauzl.fromRandomAccessReader(reader, stats.size, {lazyEntries: true}, function(err, zipfile) {
+    yauzl.fromRandomAccessReader(reader, stats.size, options, function(err, zipfile) {
       if (err) throw err;
       callback(null, zipfile);
     });
