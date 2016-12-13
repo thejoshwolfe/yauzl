@@ -94,7 +94,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
   // as a consequence of this design decision, it's possible to have ambiguous zip file metadata if a coherent eocdr was in the comment.
   // we search backwards for a eocdr signature, and hope that whoever made the zip file was smart enough to forbid the eocdr signature in the comment.
   var eocdrWithoutCommentSize = 22;
-  var maxCommentSize = 0x10000; // 2-byte size
+  var maxCommentSize = 0xffff; // 2-byte size
   var bufferSize = Math.min(eocdrWithoutCommentSize + maxCommentSize, totalSize);
   var buffer = new Buffer(bufferSize);
   var bufferReadStart = totalSize - buffer.length;
