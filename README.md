@@ -71,7 +71,7 @@ function defaultCallback(err) {
 
 Calls `fs.open(path, "r")` and reads the `fd` effectively the same as `fromFd()` would.
 
-`options` may be omitted or `null`. The defaults are `{autoClose: true, lazyEntries: false, decodeStrings: true}`.
+`options` may be omitted or `null`. The defaults are `{autoClose: true, lazyEntries: false, decodeStrings: true, validateEntrySizes: true}`.
 
 `autoClose` is effectively equivalent to:
 
@@ -96,6 +96,11 @@ The exact effects of turning this option off are:
 * Any Info-ZIP Unicode Path Extra Field will be ignored. See `extraFields`.
 * Automatic file name validation will not be performed. See `validateFileName()`.
 
+`validateEntrySizes` is the default and ensures that an entry's reported uncompressed size matches its actual uncompressed size.
+This check happens as early as possible, which is either before emitting each `"entry"` event (for entries with no compression),
+or during the `readStream` piping after calling `openReadStream()`.
+See `openReadStream()` for more information on defending against zip bomb attacks.
+
 The `callback` is given the arguments `(err, zipfile)`.
 An `err` is provided if the End of Central Directory Record cannot be found, or if its metadata appears malformed.
 This kind of error usually indicates that this is not a zip file.
@@ -107,7 +112,7 @@ Reads from the fd, which is presumed to be an open .zip file.
 Note that random access is required by the zip file specification,
 so the fd cannot be an open socket or any other fd that does not support random access.
 
-`options` may be omitted or `null`. The defaults are `{autoClose: false, lazyEntries: false, decodeStrings: true}`.
+`options` may be omitted or `null`. The defaults are `{autoClose: false, lazyEntries: false, decodeStrings: true, validateEntrySizes: true}`.
 
 See `open()` for the meaning of the options and callback.
 
@@ -120,7 +125,7 @@ If a `ZipFile` is acquired from this method,
 it will never emit the `close` event,
 and calling `close()` is not necessary.
 
-`options` may be omitted or `null`. The defaults are `{lazyEntries: false, decodeStrings: true}`.
+`options` may be omitted or `null`. The defaults are `{lazyEntries: false, decodeStrings: true, validateEntrySizes: true}`.
 
 See `open()` for the meaning of the options and callback.
 The `autoClose` option is ignored for this method.
@@ -134,7 +139,7 @@ The `reader` parameter must be of a type that is a subclass of
 [RandomAccessReader](#class-randomaccessreader) that implements the required methods.
 The `totalSize` is a Number and indicates the total file size of the zip file.
 
-`options` may be omitted or `null`. The defaults are `{autoClose: true, lazyEntries: false, decodeStrings: true}`.
+`options` may be omitted or `null`. The defaults are `{autoClose: true, lazyEntries: false, decodeStrings: true, validateEntrySizes: true}`.
 
 See `open()` for the meaning of the options and callback.
 
@@ -171,6 +176,10 @@ See `open()` and `readEntry()` for when this event is emitted.
 
 If `decodeStrings` is `true`, entries emitted via this event have already passed file name validation.
 See `validateFileName()` and `open()` for more information.
+
+If `validateEntrySizes` is `true` and this entry's `compressionMethod` is `0` (stored without compression),
+this entry has already passed entry size validation.
+See `open()` for more information.
 
 #### Event: "end"
 
@@ -219,12 +228,12 @@ If this zipfile is already closed (see `close()`), the `callback` will receive a
 
 It's possible for the `readStream` it to emit errors for several reasons.
 For example, if zlib cannot decompress the data, the zlib error will be emitted from the `readStream`.
-Two more error cases are if the decompressed data has too many or too few actual bytes
-compared to the reported byte count from the entry's `uncompressedSize` field.
+Two more error cases (when `validateEntrySizes` is `true`) are if the decompressed data has too many
+or too few actual bytes compared to the reported byte count from the entry's `uncompressedSize` field.
 yauzl notices this false information and emits an error from the `readStream`
 after some number of bytes have already been piped through the stream.
 
-Because of this check, clients can always trust the `uncompressedSize` field in `Entry` objects.
+This check allows clients to trust the `uncompressedSize` field in `Entry` objects.
 Guarding against [zip bomb](http://en.wikipedia.org/wiki/Zip_bomb) attacks can be accomplished by
 doing some heuristic checks on the size metadata and then watching out for the above errors.
 Such heuristics are outside the scope of this library,
@@ -360,6 +369,8 @@ Subclasses *must* implement this method.
 This method should return a readable stream which will be `pipe()`ed into another stream.
 It is expected that the readable stream will provide data in several chunks if necessary.
 If the readable stream provides too many or too few bytes, an error will be emitted.
+(Note that `validateEntrySizes` has no effect on this check,
+because this is a low-level API that should behave correctly regardless of the contents of the file.)
 Any errors emitted on the readable stream will be handled and re-emitted on the client-visible stream
 (returned from `zipfile.openReadStream()`) or provided as the `err` argument to the appropriate callback
 (for example, for `fromRandomAccessReader()`).
@@ -490,6 +501,8 @@ This library makes no attempt to interpret the Language Encoding Flag.
 
 ## Change History
 
+ * 2.8.0
+   * Added option `validateEntrySizes`. [issue #53](https://github.com/thejoshwolfe/yauzl/issues/53)
  * 2.7.0
    * Added option `decodeStrings`. [issue #42](https://github.com/thejoshwolfe/yauzl/issues/42)
    * Fixed documentation for `entry.fileComment` and added compatibility alias. [issue #47](https://github.com/thejoshwolfe/yauzl/issues/47)

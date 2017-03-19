@@ -27,6 +27,7 @@ function open(path, options, callback) {
   if (options.autoClose == null) options.autoClose = true;
   if (options.lazyEntries == null) options.lazyEntries = false;
   if (options.decodeStrings == null) options.decodeStrings = true;
+  if (options.validateEntrySizes == null) options.validateEntrySizes = true;
   if (callback == null) callback = defaultCallback;
   fs.open(path, "r", function(err, fd) {
     if (err) return callback(err);
@@ -46,6 +47,7 @@ function fromFd(fd, options, callback) {
   if (options.autoClose == null) options.autoClose = false;
   if (options.lazyEntries == null) options.lazyEntries = false;
   if (options.decodeStrings == null) options.decodeStrings = true;
+  if (options.validateEntrySizes == null) options.validateEntrySizes = true;
   if (callback == null) callback = defaultCallback;
   fs.fstat(fd, function(err, stats) {
     if (err) return callback(err);
@@ -63,6 +65,7 @@ function fromBuffer(buffer, options, callback) {
   options.autoClose = false;
   if (options.lazyEntries == null) options.lazyEntries = false;
   if (options.decodeStrings == null) options.decodeStrings = true;
+  if (options.validateEntrySizes == null) options.validateEntrySizes = true;
   // i got your open file right here.
   var reader = fd_slicer.createFromBuffer(buffer);
   fromRandomAccessReader(reader, buffer.length, options, callback);
@@ -78,6 +81,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
   if (options.lazyEntries == null) options.lazyEntries = false;
   if (options.decodeStrings == null) options.decodeStrings = true;
   var decodeStrings = !!options.decodeStrings;
+  if (options.validateEntrySizes == null) options.validateEntrySizes = true;
   if (callback == null) callback = defaultCallback;
   if (typeof totalSize !== "number") throw new Error("expected totalSize parameter to be a number");
   if (totalSize > Number.MAX_SAFE_INTEGER) {
@@ -130,7 +134,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
                                   : eocdrBuffer.slice(22);
 
       if (!(entryCount === 0xffff || centralDirectoryOffset === 0xffffffff)) {
-        return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings));
+        return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings, options.validateEntrySizes));
       }
 
       // ZIP64 format
@@ -171,7 +175,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
           // 48 - offset of start of central directory with respect to the starting disk number     8 bytes
           centralDirectoryOffset = readUInt64LE(zip64EocdrBuffer, 48);
           // 56 - zip64 extensible data sector                                (variable size)
-          return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings));
+          return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings, options.validateEntrySizes));
         });
       });
       return;
@@ -181,7 +185,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
 }
 
 util.inherits(ZipFile, EventEmitter);
-function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, autoClose, lazyEntries, decodeStrings) {
+function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, autoClose, lazyEntries, decodeStrings, validateEntrySizes) {
   var self = this;
   EventEmitter.call(self);
   self.reader = reader;
@@ -201,6 +205,7 @@ function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, 
   self.autoClose = !!autoClose;
   self.lazyEntries = !!lazyEntries;
   self.decodeStrings = !!decodeStrings;
+  self.validateEntrySizes = !!validateEntrySizes;
   self.isOpen = true;
   self.emittedError = false;
 
@@ -389,7 +394,7 @@ ZipFile.prototype.readEntry = function() {
       }
 
       // validate file size
-      if (entry.compressionMethod === 0) {
+      if (self.validateEntrySizes && entry.compressionMethod === 0) {
         if (entry.compressedSize !== entry.uncompressedSize) {
           var msg = "compressed/uncompressed size mismatch for stored file: " + entry.compressedSize + " != " + entry.uncompressedSize;
           return emitErrorAndAutoClose(self, new Error(msg));
@@ -469,22 +474,29 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
             if (!destroyed) inflateFilter.emit("error", err);
           });
         });
+        readStream.pipe(inflateFilter);
 
-        var checkerStream = new AssertByteCountStream(entry.uncompressedSize);
-        inflateFilter.on("error", function(err) {
-          // forward zlib errors to the client-visible stream
-          setImmediate(function() {
-            if (!destroyed) checkerStream.emit("error", err);
+        if (self.validateEntrySizes) {
+          endpointStream = new AssertByteCountStream(entry.uncompressedSize);
+          inflateFilter.on("error", function(err) {
+            // forward zlib errors to the client-visible stream
+            setImmediate(function() {
+              if (!destroyed) endpointStream.emit("error", err);
+            });
           });
-        });
-        checkerStream.destroy = function() {
+          inflateFilter.pipe(endpointStream);
+        } else {
+          // the zlib filter is the client-visible stream
+          endpointStream = inflateFilter;
+        }
+        // this is part of yauzl's API, so implement this function on the client-visible stream
+        endpointStream.destroy = function() {
           destroyed = true;
-          inflateFilter.unpipe(checkerStream);
+          if (inflateFilter !== endpointStream) inflateFilter.unpipe(endpointStream);
           readStream.unpipe(inflateFilter);
-          // TODO: the inflateFilter now causes a memory leak. see Issue #27.
+          // TODO: the inflateFilter may cause a memory leak. see Issue #27.
           readStream.destroy();
         };
-        endpointStream = readStream.pipe(inflateFilter).pipe(checkerStream);
       }
       callback(null, endpointStream);
     } finally {

@@ -24,13 +24,18 @@ function shouldDoTest(testPath) {
 }
 
 // success tests
-listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
+listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry-sizes")]).forEach(function(zipfilePath) {
   if (!shouldDoTest(zipfilePath)) return;
   var optionConfigurations = [
     // you can find more options coverage in the failure tests.
     {lazyEntries: true},
     {lazyEntries: true, decodeStrings: false},
   ];
+  if (/\/wrong-entry-sizes\//.test(zipfilePath)) {
+    optionConfigurations.forEach(function(options) {
+      options.validateEntrySizes = false;
+    });
+  }
   var openFunctions = [
     function(testId, options, callback) { yauzl.open(zipfilePath, options, callback); },
     function(testId, options, callback) { yauzl.fromBuffer(fs.readFileSync(zipfilePath), options, callback); },
@@ -127,7 +132,7 @@ listZipFiles(path.join(__dirname, "success")).forEach(function(zipfilePath) {
 });
 
 // failure tests
-listZipFiles(path.join(__dirname, "failure")).forEach(function(zipfilePath) {
+listZipFiles([path.join(__dirname, "failure")]).forEach(function(zipfilePath) {
   if (!shouldDoTest(zipfilePath)) return;
   var expectedErrorMessage = path.basename(zipfilePath).replace(/(_\d+)?\.zip$/, "");
   var failedYet = false;
@@ -311,11 +316,14 @@ pend.wait(function() {
 });
 
 
-function listZipFiles(dir) {
-  var zipfilePaths = fs.readdirSync(dir).filter(function(filepath) {
-    return /\.zip$/.exec(filepath);
-  }).map(function(name) {
-    return path.relative(".", path.join(dir, name));
+function listZipFiles(dirList) {
+  var zipfilePaths = [];
+  dirList.forEach(function(dir) {
+    fs.readdirSync(dir).filter(function(filepath) {
+      return /\.zip$/.exec(filepath);
+    }).forEach(function(name) {
+      zipfilePaths.push(path.relative(".", path.join(dir, name)));
+    });
   });
   zipfilePaths.sort();
   return zipfilePaths;
