@@ -503,6 +503,7 @@ This library makes no attempt to interpret the Language Encoding Flag.
 
  * 2.8.0
    * Added option `validateEntrySizes`. [issue #53](https://github.com/thejoshwolfe/yauzl/issues/53)
+   * Added `examples/promises.js`
  * 2.7.0
    * Added option `decodeStrings`. [issue #42](https://github.com/thejoshwolfe/yauzl/issues/42)
    * Fixed documentation for `entry.fileComment` and added compatibility alias. [issue #47](https://github.com/thejoshwolfe/yauzl/issues/47)
