@@ -124,10 +124,25 @@ function openMiddleOfFile(zipFilePath, options, offsetArg, lenArg, endArg, handl
 function handleZipFile(err, zipfile) {
   if (err) throw err;
 
-  zipfile.readEntry();
+  // track when we've closed all our file handles
+  var handleCount = 0;
+  function incrementHandleCount() {
+    handleCount++;
+  }
+  function decrementHandleCount() {
+    handleCount--;
+    if (handleCount === 0) {
+      console.log("all input and output handles closed");
+    }
+  }
+
+  incrementHandleCount();
   zipfile.on("close", function() {
-    console.log("done");
+    console.log("closed input file");
+    decrementHandleCount();
   });
+
+  zipfile.readEntry();
   zipfile.on("entry", function(entry) {
     if (/\/$/.test(entry.fileName)) {
       // directory file names end with '/'
@@ -175,7 +190,10 @@ function handleZipFile(err, zipfile) {
           };
 
           // pump file contents
-          readStream.pipe(filter).pipe(fs.createWriteStream(entry.fileName));
+          var writeStream = fs.createWriteStream(entry.fileName);
+          incrementHandleCount();
+          writeStream.on("close", decrementHandleCount);
+          readStream.pipe(filter).pipe(writeStream);
         });
       });
     }

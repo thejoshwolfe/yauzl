@@ -25,37 +25,30 @@ Design principles:
 
 ```js
 var yauzl = require("yauzl");
-var fs = require("fs");
-var path = require("path");
-var mkdirp = require("mkdirp"); // or similar
 
 yauzl.open("path/to/file.zip", {lazyEntries: true}, function(err, zipfile) {
   if (err) throw err;
   zipfile.readEntry();
   zipfile.on("entry", function(entry) {
     if (/\/$/.test(entry.fileName)) {
-      // directory file names end with '/'
-      mkdirp(entry.fileName, function(err) {
-        if (err) throw err;
-        zipfile.readEntry();
-      });
+      // Directory file names end with '/'.
+      // Note that entires for directories themselves are optional.
+      // An entry's fileName implicitly requires its parent directories to exist.
     } else {
       // file entry
       zipfile.openReadStream(entry, function(err, readStream) {
         if (err) throw err;
-        // ensure parent directory exists
-        mkdirp(path.dirname(entry.fileName), function(err) {
-          if (err) throw err;
-          readStream.pipe(fs.createWriteStream(entry.fileName));
-          readStream.on("end", function() {
-            zipfile.readEntry();
-          });
+        readStream.on("end", function() {
+          zipfile.readEntry();
         });
+        readStream.pipe(somewhere);
       });
     }
   });
 });
 ```
+
+See also `examples/` for more usage examples.
 
 ## API
 
