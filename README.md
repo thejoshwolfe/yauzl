@@ -218,15 +218,43 @@ After calling this method, calling this method again before the response event h
 Calling this method after the `end` event has been emitted will cause undefined behavior.
 Calling this method after calling `close()` will cause undefined behavior.
 
-#### openReadStream(entry, callback)
+#### openReadStream(entry, [options], callback)
 
 `entry` must be an `Entry` object from this `ZipFile`.
 `callback` gets `(err, readStream)`, where `readStream` is a `Readable Stream`.
-If the entry is compressed (with a supported compression method),
-the read stream provides the decompressed data.
 If this zipfile is already closed (see `close()`), the `callback` will receive an `err`.
 
-It's possible for the `readStream` it to emit errors for several reasons.
+`options` may be omitted or `null`, and has the following defaults:
+
+```js
+{
+  decompress: entry.isCompressed() ? true : null,
+  decrypt: null,
+}
+```
+
+If the entry is compressed (with a supported compression method),
+and the `decompress` option is `true` (or omitted),
+the read stream provides the decompressed data.
+Omitting the `decompress` option is what most clients should do.
+
+The `decompress` option must be `null` (or omitted) when the entry is not compressed (see `isCompressed()`),
+and either `true` (or omitted) or `false` when the entry is compressed.
+Specifying `decompress: false` for a compressed entry causes the read stream
+to provide the raw compressed file data without going through zlib.
+
+If the entry is encrypted (see `isEncrypted()`), clients may want to avoid calling `openReadStream()` on the entry entirely.
+Alternatively, clients may call `openReadStream()` for encrypted entries and specify `decrypt: false`.
+If the entry is also compressed, clients must *also* specify `decompress: false`, or else the `callback` will receive an `err`.
+Specifying `decrypt: false` for an encrypted entry causes the read stream to provide the raw encrypted file data.
+(This data includes the 12-byte header described in the spec.)
+
+The `decrypt` option must be `null` (or omitted) for non-encrypted entries, and `false` for encrypted entries.
+Omitting the `decrypt` option (or specifying it as `null`) for an encrypted entry
+will result in the `callback` receiving an `err`.
+This default behavior is so that clients not accounting for encrypted files aren't surprised by bogus file data.
+
+It's also possible for the `readStream` to emit errors for several reasons.
 For example, if zlib cannot decompress the data, the zlib error will be emitted from the `readStream`.
 Two more error cases (when `validateEntrySizes` is `true`) are if the decompressed data has too many
 or too few actual bytes compared to the reported byte count from the entry's `uncompressedSize` field.
@@ -352,6 +380,29 @@ Effectively implemented as:
 return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime);
 ```
 
+#### isEncrypted()
+
+Returns is this entry encrypted with "Traditional Encryption".
+Effectively implemented as:
+
+```js
+return (this.generalPurposeBitFlag & 0x1) !== 0;
+```
+
+See `openReadStream()` for the implications of this value.
+
+Note that "Strong Encryption" is not supported, and will result in an `"error"` event emitted from the `ZipFile`.
+
+#### isCompressed()
+
+Effectively implemented as:
+
+```js
+return this.compressionMethod === 8;
+```
+
+See `openReadStream()` for the implications of this value.
+
 ### Class: RandomAccessReader
 
 This class is meant to be subclassed by clients and instantiated for the `fromRandomAccessReader()` function.
@@ -411,6 +462,8 @@ be sure to do the following:
  * Attach a listener for the `error` event on any `ZipFile` object you get from `open()`, `fromFd()`, `fromBuffer()`, or `fromRandomAccessReader()`.
  * Attach a listener for the `error` event on any stream you get from `openReadStream()`.
 
+Minor version updates to yauzl will not add any additional requirements to this list.
+
 ## Limitations
 
 ### No Streaming Unzip API
@@ -454,10 +507,15 @@ By extension the following zip file fields are ignored by this library and not p
  * Number of central directory records on this disk
  * Disk number where file starts
 
-### No Encryption Support
+### Limited Encryption Handling
 
-Currently, the presence of encryption is not even checked,
-and encrypted zip files will cause undefined behavior.
+You can detect when a file entry is encrypted with "Traditional Encryption" via `isEncrypted()`,
+but yauzl will not help you decrypt it.
+See `openReadStream()`.
+
+If a zip file contains file entries encrypted with "Strong Encryption", yauzl emits an error.
+
+If the central directory is encrypted or compressed, yauzl emits an error.
 
 ### Local File Headers Are Ignored
 
@@ -504,6 +562,7 @@ This library makes no attempt to interpret the Language Encoding Flag.
  * 2.8.0
    * Added option `validateEntrySizes`. [issue #53](https://github.com/thejoshwolfe/yauzl/issues/53)
    * Added `examples/promises.js`
+   * Added ability to read raw file data via `decompress` and `decrypt` options. [issue #11](https://github.com/thejoshwolfe/yauzl/issues/11), [issue #38](https://github.com/thejoshwolfe/yauzl/issues/38), [pull #39](https://github.com/thejoshwolfe/yauzl/pull/39)
  * 2.7.0
    * Added option `decodeStrings`. [issue #42](https://github.com/thejoshwolfe/yauzl/issues/42)
    * Fixed documentation for `entry.fileComment` and added compatibility alias. [issue #47](https://github.com/thejoshwolfe/yauzl/issues/47)

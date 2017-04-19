@@ -279,6 +279,8 @@ ZipFile.prototype.readEntry = function() {
     // 42 - Relative offset of local file header
     entry.relativeOffsetOfLocalHeader = buffer.readUInt32LE(42);
 
+    if (entry.generalPurposeBitFlag & 0x40) return emitErrorAndAutoClose(self, new Error("strong encryption is not supported"));
+
     self.readEntryCursor += 46;
 
     buffer = new Buffer(entry.fileNameLength + entry.extraFieldLength + entry.fileCommentLength);
@@ -395,7 +397,12 @@ ZipFile.prototype.readEntry = function() {
 
       // validate file size
       if (self.validateEntrySizes && entry.compressionMethod === 0) {
-        if (entry.compressedSize !== entry.uncompressedSize) {
+        var expectedCompressedSize = entry.uncompressedSize;
+        if (entry.isEncrypted()) {
+          // traditional encryption prefixes the file data with a header
+          expectedCompressedSize += 12;
+        }
+        if (entry.compressedSize !== expectedCompressedSize) {
           var msg = "compressed/uncompressed size mismatch for stored file: " + entry.compressedSize + " != " + entry.uncompressedSize;
           return emitErrorAndAutoClose(self, new Error(msg));
         }
@@ -412,9 +419,36 @@ ZipFile.prototype.readEntry = function() {
   });
 };
 
-ZipFile.prototype.openReadStream = function(entry, callback) {
+ZipFile.prototype.openReadStream = function(entry, options, callback) {
   var self = this;
+  // parameter validation
+  if (callback == null) {
+    callback = options;
+    options = {};
+  } else {
+    if (options.decrypt != null) {
+      if (!entry.isEncrypted()) {
+        throw new Error("options.decrypt can only be specified for encrypted entries");
+      }
+      if (options.decrypt !== false) throw new Error("invalid options.decrypt value: " + options.decrypt);
+    }
+    if (options.decompress != null) {
+      if (!entry.isCompressed()) {
+        throw new Error("options.decompress can only be specified for compressed entries");
+      }
+      if (!(options.decompress === false || options.decompress === true)) {
+        throw new Error("invalid options.decompress value: " + options.decompress);
+      }
+    }
+  }
+  // any further errors can be caused by the zipfile, so should be passed to the client rather than thrown
   if (!self.isOpen) return callback(new Error("closed"));
+  if (entry.isEncrypted()) {
+    if (options.decrypt !== false) return callback(new Error("entry is encrypted, and options.decrypt !== false"));
+    if (entry.isCompressed()) {
+      if (options.decompress !== false) return callback(new Error("entry is encrypted and compressed, and options.decompress !== false"));
+    }
+  }
   // make sure we don't lose the fd before we open the actual read stream
   self.reader.ref();
   var buffer = new Buffer(30);
@@ -442,13 +476,13 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
       // 30 - File name
       // 30+n - Extra field
       var localFileHeaderEnd = entry.relativeOffsetOfLocalHeader + buffer.length + fileNameLength + extraFieldLength;
-      var compressed;
+      var decompress;
       if (entry.compressionMethod === 0) {
         // 0 - The file is stored (no compression)
-        compressed = false;
+        decompress = false;
       } else if (entry.compressionMethod === 8) {
         // 8 - The file is Deflated
-        compressed = true;
+        decompress = options.decompress != null ? options.decompress : true;
       } else {
         return callback(new Error("unsupported compression method: " + entry.compressionMethod));
       }
@@ -465,7 +499,7 @@ ZipFile.prototype.openReadStream = function(entry, callback) {
       }
       var readStream = self.reader.createReadStream({start: fileDataStart, end: fileDataEnd});
       var endpointStream = readStream;
-      if (compressed) {
+      if (decompress) {
         var destroyed = false;
         var inflateFilter = zlib.createInflateRaw();
         readStream.on("error", function(err) {
@@ -509,6 +543,12 @@ function Entry() {
 }
 Entry.prototype.getLastModDate = function() {
   return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime);
+};
+Entry.prototype.isEncrypted = function() {
+  return (this.generalPurposeBitFlag & 0x1) !== 0;
+};
+Entry.prototype.isCompressed = function() {
+  return this.compressionMethod === 8;
 };
 
 function dosDateTimeToDate(date, time) {
