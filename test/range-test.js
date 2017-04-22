@@ -119,7 +119,7 @@ function runTest(cb) {
                 if (err) throw err;
                 readStream.pipe(BufferList(function(err, data) {
                   var prefix = "openReadStream with range(" + start + "," + end + "," + index + "): ";
-                  if (!data.equals(expectedSlice)) {
+                  if (!buffersEqual(data, expectedSlice)) {
                     throw new Error(prefix + "contents mismatch");
                   }
                   console.log(prefix + "pass");
@@ -141,6 +141,14 @@ function hexToBuffer(hexString) {
     buffer[i] = parseInt(hexString.substr(i * 2, 2), 16);
   }
   return buffer;
+}
+
+function buffersEqual(a, b) {
+  if (a.length !== b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }
 
 if (require.main === module) runTest(function() {});
