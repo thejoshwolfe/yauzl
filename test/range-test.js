@@ -57,6 +57,7 @@ var expectedFileDatas = [
 ];
 
 function runTest(cb) {
+  util.inherits(StingyRandomAccessReader, yauzl.RandomAccessReader);
   function StingyRandomAccessReader(buffer) {
     yauzl.RandomAccessReader.call(this);
     this.buffer = buffer;
@@ -76,7 +77,6 @@ function runTest(cb) {
     result.end();
     return result;
   };
-  util.inherits(StingyRandomAccessReader, yauzl.RandomAccessReader);
 
   var zipfileReader = new StingyRandomAccessReader(zipfileBuffer);
   var options = {lazyEntries: true, autoClose: false};
