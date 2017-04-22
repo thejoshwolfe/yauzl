@@ -1,5 +1,6 @@
 var yauzl = require("../");
 var zip64 = require("./zip64");
+var rangeTest = require("./range-test");
 var fs = require("fs");
 var path = require("path");
 var Pend = require("pend");
@@ -325,6 +326,9 @@ pend.go(function(cb) {
 
 // zip64
 pend.go(zip64.runTest);
+
+// openReadStream with range
+pend.go(rangeTest.runTest);
 
 pend.wait(function() {
   // if you don't see this, something never happened.

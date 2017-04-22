@@ -214,7 +214,7 @@ Calling this method after calling `close()` will cause undefined behavior.
 #### openReadStream(entry, [options], callback)
 
 `entry` must be an `Entry` object from this `ZipFile`.
-`callback` gets `(err, readStream)`, where `readStream` is a `Readable Stream`.
+`callback` gets `(err, readStream)`, where `readStream` is a `Readable Stream` that provides the file data for this entry.
 If this zipfile is already closed (see `close()`), the `callback` will receive an `err`.
 
 `options` may be omitted or `null`, and has the following defaults:
@@ -223,6 +223,8 @@ If this zipfile is already closed (see `close()`), the `callback` will receive a
 {
   decompress: entry.isCompressed() ? true : null,
   decrypt: null,
+  start: 0,                  // actually the default is null, see below
+  end: entry.compressedSize, // actually the default is null, see below
 }
 ```
 
@@ -234,12 +236,12 @@ Omitting the `decompress` option is what most clients should do.
 The `decompress` option must be `null` (or omitted) when the entry is not compressed (see `isCompressed()`),
 and either `true` (or omitted) or `false` when the entry is compressed.
 Specifying `decompress: false` for a compressed entry causes the read stream
-to provide the raw compressed file data without going through zlib.
+to provide the raw compressed file data without going through a zlib inflate transform.
 
 If the entry is encrypted (see `isEncrypted()`), clients may want to avoid calling `openReadStream()` on the entry entirely.
 Alternatively, clients may call `openReadStream()` for encrypted entries and specify `decrypt: false`.
-If the entry is also compressed, clients must *also* specify `decompress: false`, or else the `callback` will receive an `err`.
-Specifying `decrypt: false` for an encrypted entry causes the read stream to provide the raw encrypted file data.
+If the entry is also compressed, clients must *also* specify `decompress: false`.
+Specifying `decrypt: false` for an encrypted entry causes the read stream to provide the raw, still-encrypted file data.
 (This data includes the 12-byte header described in the spec.)
 
 The `decrypt` option must be `null` (or omitted) for non-encrypted entries, and `false` for encrypted entries.
@@ -247,7 +249,16 @@ Omitting the `decrypt` option (or specifying it as `null`) for an encrypted entr
 will result in the `callback` receiving an `err`.
 This default behavior is so that clients not accounting for encrypted files aren't surprised by bogus file data.
 
-It's also possible for the `readStream` to emit errors for several reasons.
+The `start` (inclusive) and `end` (exclusive) options are byte offsets into this entry's file data,
+and can be used to obtain part of an entry's file data rather than the whole thing.
+If either of these options are specified and non-`null`,
+then the above options must be used to obain the file's raw data.
+Speficying `{start: 0, end: entry.compressedSize}` will result in the complete file,
+which is effectively the default values for these options,
+but note that unlike omitting the options, when you specify `start` or `end` as any non-`null` value,
+the above requirement is still enforced that you must also pass the appropriate options to get the file's raw data.
+
+It's possible for the `readStream` provided to the `callback` to emit errors for several reasons.
 For example, if zlib cannot decompress the data, the zlib error will be emitted from the `readStream`.
 Two more error cases (when `validateEntrySizes` is `true`) are if the decompressed data has too many
 or too few actual bytes compared to the reported byte count from the entry's `uncompressedSize` field.
@@ -556,6 +567,7 @@ This library makes no attempt to interpret the Language Encoding Flag.
    * Added option `validateEntrySizes`. [issue #53](https://github.com/thejoshwolfe/yauzl/issues/53)
    * Added `examples/promises.js`
    * Added ability to read raw file data via `decompress` and `decrypt` options. [issue #11](https://github.com/thejoshwolfe/yauzl/issues/11), [issue #38](https://github.com/thejoshwolfe/yauzl/issues/38), [pull #39](https://github.com/thejoshwolfe/yauzl/pull/39)
+   * Added `start` and `end` options to `openReadStream()`. [issue #38](https://github.com/thejoshwolfe/yauzl/issues/38)
  * 2.7.0
    * Added option `decodeStrings`. [issue #42](https://github.com/thejoshwolfe/yauzl/issues/42)
    * Fixed documentation for `entry.fileComment` and added compatibility alias. [issue #47](https://github.com/thejoshwolfe/yauzl/issues/47)

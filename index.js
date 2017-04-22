@@ -422,15 +422,21 @@ ZipFile.prototype.readEntry = function() {
 ZipFile.prototype.openReadStream = function(entry, options, callback) {
   var self = this;
   // parameter validation
+  var relativeStart = 0;
+  var relativeEnd = entry.compressedSize;
   if (callback == null) {
     callback = options;
     options = {};
   } else {
+    // validate options that the caller has no excuse to get wrong
     if (options.decrypt != null) {
       if (!entry.isEncrypted()) {
         throw new Error("options.decrypt can only be specified for encrypted entries");
       }
       if (options.decrypt !== false) throw new Error("invalid options.decrypt value: " + options.decrypt);
+      if (entry.isCompressed()) {
+        if (options.decompress !== false) throw new Error("entry is encrypted and compressed, and options.decompress !== false");
+      }
     }
     if (options.decompress != null) {
       if (!entry.isCompressed()) {
@@ -440,14 +446,32 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
         throw new Error("invalid options.decompress value: " + options.decompress);
       }
     }
+    if (options.start != null || options.end != null) {
+      if (entry.isCompressed() && options.decompress !== false) {
+        throw new Error("start/end range not allowed for compressed entry without options.decompress === false");
+      }
+      if (entry.isEncrypted() && options.decrypt !== false) {
+        throw new Error("start/end range not allowed for encrypted entry without options.decrypt === false");
+      }
+    }
+    if (options.start != null) {
+      relativeStart = options.start;
+      if (relativeStart < 0) throw new Error("options.start < 0");
+      if (relativeStart > entry.compressedSize) throw new Error("options.start > entry.compressedSize");
+    }
+    if (options.end != null) {
+      relativeEnd = options.end;
+      if (relativeEnd < 0) throw new Error("options.end < 0");
+      if (relativeEnd > entry.compressedSize) throw new Error("options.end > entry.compressedSize");
+      if (relativeEnd < relativeStart) throw new Error("options.end < options.start");
+    }
   }
-  // any further errors can be caused by the zipfile, so should be passed to the client rather than thrown
+  // any further errors can either be caused by the zipfile,
+  // or were introduced in a minor version of yauzl,
+  // so should be passed to the client rather than thrown.
   if (!self.isOpen) return callback(new Error("closed"));
   if (entry.isEncrypted()) {
     if (options.decrypt !== false) return callback(new Error("entry is encrypted, and options.decrypt !== false"));
-    if (entry.isCompressed()) {
-      if (options.decompress !== false) return callback(new Error("entry is encrypted and compressed, and options.decompress !== false"));
-    }
   }
   // make sure we don't lose the fd before we open the actual read stream
   self.reader.ref();
@@ -497,7 +521,10 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
               fileDataStart + " + " + entry.compressedSize + " > " + self.fileSize));
         }
       }
-      var readStream = self.reader.createReadStream({start: fileDataStart, end: fileDataEnd});
+      var readStream = self.reader.createReadStream({
+        start: fileDataStart + relativeStart,
+        end: fileDataStart + relativeEnd,
+      });
       var endpointStream = readStream;
       if (decompress) {
         var destroyed = false;
