@@ -31,7 +31,7 @@
   },
   "devDependencies": {
     "bl": "~1.0.0",
-    "istanbul": "~0.3.4",
+    "istanbul": "~0.4.5",
     "pend": "~1.2.0"
   },
   "files": [
