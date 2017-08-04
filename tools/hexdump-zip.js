@@ -364,7 +364,8 @@ function printEverything() {
   // first find gaps and overlaps
   reports.sort(function(a, b) { return a.offset - b.offset; });
   var cursor = 0;
-  for (var i = 0; i < reports.length; i++) {
+  var originalReportsLength = reports.length;
+  for (var i = 0; i < originalReportsLength; i++) {
     var report = reports[i];
     var offset = report.offset;
     if (report.len == null) continue;
