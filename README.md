@@ -485,6 +485,27 @@ Any library that offers a streaming unzip API must make one of the above two com
 which makes the library either dishonest or nonconformant (usually the latter).
 This library insists on correctness and adherence to the spec, and so does not offer a streaming API.
 
+Here is a way to create a spec-conformant .zip file using the `zip` command line program (Info-ZIP)
+available in most unix-like environments, that is (nearly) impossible to parse correctly with a streaming parser:
+
+```
+$ echo -ne '\x50\x4b\x07\x08\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' > file.txt
+$ zip -q0 - file.txt | cat > out.zip
+```
+
+This .zip file contains a single file entry that uses General Purpose Bit 3,
+which means the Local File Header doesn't know the size of the file.
+Any streaming parser that encounters this situation will either immediately fail,
+or attempt to search for the Data Descriptor after the file's contents.
+The file's contents is a sequence of 16-bytes crafted to exactly mimic a valid Data Descriptor for an empty file,
+which will fool any parser that gets this far into thinking that the file is empty rather than containing 16-bytes.
+What follows the file's real contents is the file's real Data Descriptor,
+which will likely cause some kind of signature mismatch error for a streaming parser (if one hasn't occurred already).
+
+By using General Purpose Bit 3 (and compression method 0),
+it's possible to create arbitrarily ambiguous .zip files that
+distract parsers with file contents that contain apparently valid .zip file metadata.
+
 ### Limitted ZIP64 Support
 
 For ZIP64, only zip files smaller than `8PiB` are supported,
