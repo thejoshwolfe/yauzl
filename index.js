@@ -209,7 +209,7 @@ function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, 
   self.isOpen = true;
   self.emittedError = false;
 
-  if (!self.lazyEntries) self.readEntry();
+  if (!self.lazyEntries) self._readEntry();
 }
 ZipFile.prototype.close = function() {
   if (!this.isOpen) return;
@@ -228,6 +228,10 @@ function emitError(self, err) {
 }
 
 ZipFile.prototype.readEntry = function() {
+  if (!this.lazyEntries) throw new Error("readEntry() called without lazyEntries:true");
+  this._readEntry();
+};
+ZipFile.prototype._readEntry = function() {
   var self = this;
   if (self.entryCount === self.entriesRead) {
     // done with metadata
@@ -292,6 +296,7 @@ ZipFile.prototype.readEntry = function() {
       entry.fileName = self.decodeStrings ? decodeBuffer(buffer, 0, entry.fileNameLength, isUtf8)
                                           : buffer.slice(0, entry.fileNameLength);
 
+      console.log("central entry: " + entry.fileName);
       // 46+n - Extra field
       var fileCommentStart = entry.fileNameLength + entry.extraFieldLength;
       var extraFieldBuffer = buffer.slice(entry.fileNameLength, fileCommentStart);
@@ -414,7 +419,7 @@ ZipFile.prototype.readEntry = function() {
       }
       self.emit("entry", entry);
 
-      if (!self.lazyEntries) self.readEntry();
+      if (!self.lazyEntries) self._readEntry();
     });
   });
 };
