@@ -296,7 +296,6 @@ ZipFile.prototype._readEntry = function() {
       entry.fileName = self.decodeStrings ? decodeBuffer(buffer, 0, entry.fileNameLength, isUtf8)
                                           : buffer.slice(0, entry.fileNameLength);
 
-      console.log("central entry: " + entry.fileName);
       // 46+n - Extra field
       var fileCommentStart = entry.fileNameLength + entry.extraFieldLength;
       var extraFieldBuffer = buffer.slice(entry.fileNameLength, fileCommentStart);
