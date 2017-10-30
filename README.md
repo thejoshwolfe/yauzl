@@ -585,6 +585,8 @@ This library makes no attempt to interpret the Language Encoding Flag.
 
 ## Change History
 
+ * 2.9.1
+   * Remove `console.log()` accidentally introduced in 2.9.0. [issue #64](https://github.com/thejoshwolfe/yauzl/issues/64)
  * 2.9.0
    * Throw an exception if `readEntry()` is called without `lazyEntries:true`. Previously this caused undefined behavior. [issue #63](https://github.com/thejoshwolfe/yauzl/issues/63)
  * 2.8.0
