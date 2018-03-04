@@ -51,7 +51,7 @@ function fromFd(fd, options, callback) {
   if (callback == null) callback = defaultCallback;
   fs.fstat(fd, function(err, stats) {
     if (err) return callback(err);
-    var reader = fd_slicer.createFromFd(fd, {autoClose: true});
+    var reader = fd_slicer.createFromFd(fd, {autoClose: options.autoClose});
     fromRandomAccessReader(reader, stats.size, options, callback);
   });
 }
