@@ -282,7 +282,7 @@ in order for calls to `readStream.destroy()` to work in this context.
 #### close()
 
 Causes all future calls to `openReadStream()` to fail,
-and closes the fd after all streams created by `openReadStream()` have emitted their `end` events.
+and closes the fd, if any, after all streams created by `openReadStream()` have emitted their `end` events.
 
 If the `autoClose` option is set to `true` (see `open()`),
 this function will be called automatically effectively in response to this object's `end` event.
@@ -294,6 +294,15 @@ you can call this function instead of calling `readEntry()` to abort reading the
 
 It is safe to call this function multiple times; after the first call, successive calls have no effect.
 This includes situations where the `autoClose` option effectively calls this function for you.
+
+If `close()` is never called, then the zipfile is "kept open".
+For zipfiles created with `fromFd()`, this will leave the `fd` open, which may be desirable.
+For zipfiles created with `open()`, this will leave the underlying `fd` open, thereby "leaking" it, which is probably undesirable.
+For zipfiles created with `fromRandomAccessReader()`, the reader's `close()` method will never be called.
+For zipfiles created with `fromBuffer()`, the `close()` function has no effect whether called or not.
+
+Regardless of how this `ZipFile` was created, there are no resources other than those listed above that require cleanup from this function.
+This means it may be desirable to never call `close()` in some usecases.
 
 #### isOpen
 
