@@ -607,7 +607,7 @@ function validateFileName(fileName) {
   }
   // all good
   return null;
-};
+}
 
 function readAndAssertNoEof(reader, buffer, offset, length, position, callback) {
   if (length === 0) {
