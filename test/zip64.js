@@ -196,7 +196,7 @@ function runTest(cb) {
                 if (buffersEqual(expectedPrefixBuffer, actualPrefixBuffer)) {
                   console.log(logPrefix + entry.fileName + ": pass");
                 } else {
-                  throw new Error(logPrefix + "large.bin contents read did not return expected stream")
+                  throw new Error(logPrefix + "large.bin contents read did not return expected stream");
                 }
               });
             });
