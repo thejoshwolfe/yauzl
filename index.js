@@ -100,7 +100,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
   var eocdrWithoutCommentSize = 22;
   var maxCommentSize = 0xffff; // 2-byte size
   var bufferSize = Math.min(eocdrWithoutCommentSize + maxCommentSize, totalSize);
-  var buffer = new Buffer(bufferSize);
+  var buffer = newBuffer(bufferSize);
   var bufferReadStart = totalSize - buffer.length;
   readAndAssertNoEof(reader, buffer, 0, bufferSize, bufferReadStart, function(err) {
     if (err) return callback(err);
@@ -140,7 +140,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
       // ZIP64 format
 
       // ZIP64 Zip64 end of central directory locator
-      var zip64EocdlBuffer = new Buffer(20);
+      var zip64EocdlBuffer = newBuffer(20);
       var zip64EocdlOffset = bufferReadStart + i - zip64EocdlBuffer.length;
       readAndAssertNoEof(reader, zip64EocdlBuffer, 0, zip64EocdlBuffer.length, zip64EocdlOffset, function(err) {
         if (err) return callback(err);
@@ -155,7 +155,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
         // 16 - total number of disks
 
         // ZIP64 end of central directory record
-        var zip64EocdrBuffer = new Buffer(56);
+        var zip64EocdrBuffer = newBuffer(56);
         readAndAssertNoEof(reader, zip64EocdrBuffer, 0, zip64EocdrBuffer.length, zip64EocdrOffset, function(err) {
           if (err) return callback(err);
 
@@ -243,7 +243,7 @@ ZipFile.prototype._readEntry = function() {
     return;
   }
   if (self.emittedError) return;
-  var buffer = new Buffer(46);
+  var buffer = newBuffer(46);
   readAndAssertNoEof(self.reader, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
     if (err) return emitErrorAndAutoClose(self, err);
     if (self.emittedError) return;
@@ -287,7 +287,7 @@ ZipFile.prototype._readEntry = function() {
 
     self.readEntryCursor += 46;
 
-    buffer = new Buffer(entry.fileNameLength + entry.extraFieldLength + entry.fileCommentLength);
+    buffer = newBuffer(entry.fileNameLength + entry.extraFieldLength + entry.fileCommentLength);
     readAndAssertNoEof(self.reader, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
       if (err) return emitErrorAndAutoClose(self, err);
       if (self.emittedError) return;
@@ -307,7 +307,7 @@ ZipFile.prototype._readEntry = function() {
         var dataStart = i + 4;
         var dataEnd = dataStart + dataSize;
         if (dataEnd > extraFieldBuffer.length) return emitErrorAndAutoClose(self, new Error("extra field length exceeds extra field buffer size"));
-        var dataBuffer = new Buffer(dataSize);
+        var dataBuffer = newBuffer(dataSize);
         extraFieldBuffer.copy(dataBuffer, 0, dataStart, dataEnd);
         entry.extraFields.push({
           id: headerId,
@@ -479,7 +479,7 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
   }
   // make sure we don't lose the fd before we open the actual read stream
   self.reader.ref();
-  var buffer = new Buffer(30);
+  var buffer = newBuffer(30);
   readAndAssertNoEof(self.reader, buffer, 0, buffer.length, entry.relativeOffsetOfLocalHeader, function(err) {
     try {
       if (err) return callback(err);
@@ -612,7 +612,7 @@ function validateFileName(fileName) {
 function readAndAssertNoEof(reader, buffer, offset, length, position, callback) {
   if (length === 0) {
     // fs.read will throw an out-of-bounds error if you try to read 0 bytes from a 0 byte file
-    return setImmediate(function() { callback(null, new Buffer(0)); });
+    return setImmediate(function() { callback(null, newBuffer(0)); });
   }
   reader.read(buffer, offset, length, position, function(err, bytesRead) {
     if (err) return callback(err);
@@ -768,6 +768,11 @@ function readUInt64LE(buffer, offset) {
   return upper32 * 0x100000000 + lower32;
   // as long as we're bounds checking the result of this function against the total file size,
   // we'll catch any overflow errors, because we already made sure the total file size was within reason.
+}
+
+function newBuffer(len) {
+  if (typeof Buffer.allocUnsafe === "function") return Buffer.allocUnsafe(len);
+  return new Buffer(len);
 }
 
 function defaultCallback(err) {
