@@ -770,9 +770,16 @@ function readUInt64LE(buffer, offset) {
   // we'll catch any overflow errors, because we already made sure the total file size was within reason.
 }
 
-function newBuffer(len) {
-  if (typeof Buffer.allocUnsafe === "function") return Buffer.allocUnsafe(len);
-  return new Buffer(len);
+// Node 10 deprecated new Buffer().
+var newBuffer;
+if (typeof Buffer.allocUnsafe === "function") {
+  newBuffer = function(len) {
+    return Buffer.allocUnsafe(len);
+  };
+} else {
+  newBuffer = function(len) {
+    return new Buffer(len);
+  };
 }
 
 function defaultCallback(err) {
