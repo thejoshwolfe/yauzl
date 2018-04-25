@@ -442,16 +442,19 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
         if (options.decompress !== false) throw new Error("entry is encrypted and compressed, and options.decompress !== false");
       }
     }
-    if (options.decompress != null) {
-      if (!entry.isCompressed()) {
+    if (options.decompress === true) {
+      if (entry.compressionMethod !== 8) {
+        throw new Error("options.decompress=true can only be specified for compressed entries with a supported compression method");
+      }
+    } else if (options.decompress === false) {
+      if (entry.compressionMethod === 0) {
         throw new Error("options.decompress can only be specified for compressed entries");
       }
-      if (!(options.decompress === false || options.decompress === true)) {
-        throw new Error("invalid options.decompress value: " + options.decompress);
-      }
+    } else if (options.decompress != null) {
+      throw new Error("invalid options.decompress value: " + options.decompress);
     }
     if (options.start != null || options.end != null) {
-      if (entry.isCompressed() && options.decompress !== false) {
+      if (!(entry.isUncompressed() || options.decompress === false)) {
         throw new Error("start/end range not allowed for compressed entry without options.decompress === false");
       }
       if (entry.isEncrypted() && options.decrypt !== false) {
@@ -473,6 +476,7 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
   // any further errors can either be caused by the zipfile,
   // or were introduced in a minor version of yauzl,
   // so should be passed to the client rather than thrown.
+
   if (!self.isOpen) return callback(new Error("closed"));
   if (entry.isEncrypted()) {
     if (options.decrypt !== false) return callback(new Error("entry is encrypted, and options.decrypt !== false"));
@@ -505,7 +509,10 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
       // 30+n - Extra field
       var localFileHeaderEnd = entry.relativeOffsetOfLocalHeader + buffer.length + fileNameLength + extraFieldLength;
       var decompress;
-      if (entry.compressionMethod === 0) {
+      if (options.decompress === false) {
+        // ignore compression, even unsupported compression methods
+        decompress = false;
+      } else if (entry.compressionMethod === 0) {
         // 0 - The file is stored (no compression)
         decompress = false;
       } else if (entry.compressionMethod === 8) {
@@ -559,7 +566,6 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
           destroyed = true;
           if (inflateFilter !== endpointStream) inflateFilter.unpipe(endpointStream);
           readStream.unpipe(inflateFilter);
-          // TODO: the inflateFilter may cause a memory leak. see Issue #27.
           readStream.destroy();
         };
       }
@@ -580,6 +586,12 @@ Entry.prototype.isEncrypted = function() {
 };
 Entry.prototype.isCompressed = function() {
   return this.compressionMethod === 8;
+};
+Entry.prototype.isUncompressed = function() {
+  return this.compressionMethod === 0;
+};
+Entry.prototype.isSimpleExtraction = function() {
+  return !this.isEncrypted() && (this.isCompressed() || this.isUncompressed());
 };
 
 function dosDateTimeToDate(date, time) {

@@ -218,46 +218,9 @@ Calling this method after calling `close()` will cause undefined behavior.
 `callback` gets `(err, readStream)`, where `readStream` is a `Readable Stream` that provides the file data for this entry.
 If this zipfile is already closed (see `close()`), the `callback` will receive an `err`.
 
-`options` may be omitted or `null`, and has the following defaults:
-
-```js
-{
-  decompress: entry.isCompressed() ? true : null,
-  decrypt: null,
-  start: 0,                  // actually the default is null, see below
-  end: entry.compressedSize, // actually the default is null, see below
-}
-```
-
-If the entry is compressed (with a supported compression method),
-and the `decompress` option is `true` (or omitted),
-the read stream provides the decompressed data.
-Omitting the `decompress` option is what most clients should do.
-
-The `decompress` option must be `null` (or omitted) when the entry is not compressed (see `isCompressed()`),
-and either `true` (or omitted) or `false` when the entry is compressed.
-Specifying `decompress: false` for a compressed entry causes the read stream
-to provide the raw compressed file data without going through a zlib inflate transform.
-
-If the entry is encrypted (see `isEncrypted()`), clients may want to avoid calling `openReadStream()` on the entry entirely.
-Alternatively, clients may call `openReadStream()` for encrypted entries and specify `decrypt: false`.
-If the entry is also compressed, clients must *also* specify `decompress: false`.
-Specifying `decrypt: false` for an encrypted entry causes the read stream to provide the raw, still-encrypted file data.
-(This data includes the 12-byte header described in the spec.)
-
-The `decrypt` option must be `null` (or omitted) for non-encrypted entries, and `false` for encrypted entries.
-Omitting the `decrypt` option (or specifying it as `null`) for an encrypted entry
-will result in the `callback` receiving an `err`.
-This default behavior is so that clients not accounting for encrypted files aren't surprised by bogus file data.
-
-The `start` (inclusive) and `end` (exclusive) options are byte offsets into this entry's file data,
-and can be used to obtain part of an entry's file data rather than the whole thing.
-If either of these options are specified and non-`null`,
-then the above options must be used to obain the file's raw data.
-Speficying `{start: 0, end: entry.compressedSize}` will result in the complete file,
-which is effectively the default values for these options,
-but note that unlike omitting the options, when you specify `start` or `end` as any non-`null` value,
-the above requirement is still enforced that you must also pass the appropriate options to get the file's raw data.
+Most clients should check `entry.isSimpleExtraction()`, and if the result is `false`, do not call this method.
+Otherwise, call this method with no `options`.
+See below for a description of `options` for advanced usecases.
 
 It's possible for the `readStream` provided to the `callback` to emit errors for several reasons.
 For example, if zlib cannot decompress the data, the zlib error will be emitted from the `readStream`.
@@ -278,6 +241,49 @@ You must `unpipe()` the `readStream` from any destination before calling `readSt
 If this zipfile was created using `fromRandomAccessReader()`, the `RandomAccessReader` implementation
 must provide readable streams that implement a `.destroy()` method (see `randomAccessReader._readStreamForRange()`)
 in order for calls to `readStream.destroy()` to work in this context.
+
+Advanced clients can use `options` for advanced usecases.
+If not `entry.isSimpleExtraction()`, it is not possible to read the file's original data,
+but it is possible to read file's raw data as it is encoded in the zipfile.
+See below for details.
+
+`options` may be omitted or `null`, and has the following defaults:
+
+```js
+{
+  decompress: entry.isCompressed() ? true : null,
+  decrypt: null,
+  start: 0,                  // actually the default is null, see below
+  end: entry.compressedSize, // actually the default is null, see below
+}
+```
+
+If `entry.isEncrypted()`, clients should specify `decrypt: false`, or else the `callback` will receive an `err`.
+If not `entry.isEncrypted()`, `decrypt` must be omitted or `null`.
+Specifying `decrypt: false` causes the read stream to provide the raw, still-encrypted file data.
+(This data includes the 12-byte header described in the spec.)
+
+If `entry.isUncompressed()`, `decompress` must be omitted or `null`.
+If `entry.isUncompressed()` and not `entry.isEncrypted()`,
+the file's original data is also its raw data, which the read stream provides.
+
+If `entry.isCompressed()` (and not `entry.isEncrypted()`) and `decompress` is `true` or omitted,
+the read stream provides the decompressed data after being piped through a zlib inflate transform.
+If `entry.isCompressed()` (and not `entry.isEncrypted()`) and `decompress` is `false`,
+the read stream provides the raw, still-compressed file data.
+
+If `entry.isEncrypted()` and not `entry.isUncompressed()`,
+clients must specify both `decrypt: false` and `decompress: false`.
+This causes the read stream to provide the raw, still-encrypted, still-compressed file data.
+
+The `start` (inclusive) and `end` (exclusive) options are byte offsets into this entry's file data,
+and can be used to obtain part of an entry's file data rather than the whole thing.
+If either of these options are specified and non-`null`,
+then the above options must be used to obtain the file's raw data.
+Specifying `{start: 0, end: entry.compressedSize}` will result in the complete file,
+which is effectively the default values for these options,
+but note that unlike omitting the options, when you specify `start` or `end` as any non-`null` value,
+the above requirement is still enforced that you must also pass the appropriate options to get the file's raw data.
 
 #### close()
 
@@ -394,6 +400,21 @@ Effectively implemented as:
 return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime);
 ```
 
+#### isSimpleExtraction()
+
+Returns is this entry extractable by calling `openReadStream()` with no `options`.
+For typical zip files, this method returns true for all entries.
+Currently, this is effectively implemented as:
+
+```js
+return !this.isEncrypted() && (this.isCompressed() || this.isUncompressed());
+```
+
+See `openReadStream()` for more information.
+
+In future versions of yauzl, the effective implementation of this method may change
+to account for more exceptional cases in the zip file format.
+
 #### isEncrypted()
 
 Returns is this entry encrypted with "Traditional Encryption".
@@ -407,8 +428,20 @@ See `openReadStream()` for the implications of this value.
 
 Note that "Strong Encryption" is not supported, and will result in an `"error"` event emitted from the `ZipFile`.
 
+#### isUncompressed()
+
+Returns is this entry "stored" with compression method 0.
+Effectively implemented as:
+
+```js
+return this.compressionMethod === 0;
+```
+
+See `openReadStream()` for the implications of this value.
+
 #### isCompressed()
 
+Returns is this entry compressed with a supported compression method.
 Effectively implemented as:
 
 ```js
@@ -416,6 +449,10 @@ return this.compressionMethod === 8;
 ```
 
 See `openReadStream()` for the implications of this value.
+
+Note that the name might be slightly misleading, as entries compressed with an
+unsupported compression method will still result in `false`.
+The current name and behavior of this method is maintained for compatibility.
 
 ### Class: RandomAccessReader
 
