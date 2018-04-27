@@ -218,46 +218,54 @@ Calling this method after calling `close()` will cause undefined behavior.
 `callback` gets `(err, readStream)`, where `readStream` is a `Readable Stream` that provides the file data for this entry.
 If this zipfile is already closed (see `close()`), the `callback` will receive an `err`.
 
-`options` may be omitted or `null`, and has the following defaults:
+`options` may be omitted or `null`.
+If an option value is `null` or `undefined`, it is effectively equivalent to being omitted.
+`options` has the following structure and effective default values:
 
 ```js
 {
-  decompress: entry.isCompressed() ? true : null,
-  decrypt: null,
-  start: 0,                  // actually the default is null, see below
-  end: entry.compressedSize, // actually the default is null, see below
+  decodeFileData: true,
+  start: 0,
+  end: entry.compressedSize,
+  decompress: null, // deprecated
+  decrypt: null,    // deprecated
 }
 ```
 
-If the entry is compressed (with a supported compression method),
-and the `decompress` option is `true` (or omitted),
-the read stream provides the decompressed data.
-Omitting the `decompress` option is what most clients should do.
+When `decodeFileData` is `true` or `null` (or omitted), yauzl will attempt to decode the file data.
+Currently the only supported non-trivial encoding is Deflate compression,
+in which case the file data will piped through a zlib inflate filter.
+If `entry.canDecodeFileData()` returns `false`, yauzl will not be able to decode the file data,
+and the `callback` will receive an error.
+See `canDecodeFileData()` for more information.
 
-The `decompress` option must be `null` (or omitted) when the entry is not compressed (see `isCompressed()`),
-and either `true` (or omitted) or `false` when the entry is compressed.
-Specifying `decompress: false` for a compressed entry causes the read stream
-to provide the raw compressed file data without going through a zlib inflate transform.
+When `decodeFileData` is `false`, the `readStream` will provide the raw file data as it is encoded in the zipfile.
+In this case, `entry.canDecodeFileData()` is irrelevant.
 
-If the entry is encrypted (see `isEncrypted()`), clients may want to avoid calling `openReadStream()` on the entry entirely.
-Alternatively, clients may call `openReadStream()` for encrypted entries and specify `decrypt: false`.
-If the entry is also compressed, clients must *also* specify `decompress: false`.
-Specifying `decrypt: false` for an encrypted entry causes the read stream to provide the raw, still-encrypted file data.
-(This data includes the 12-byte header described in the spec.)
+If the file data is encoded trivially (which means among other things that `entry.compressionMethod === 0`,
+"stored" as it's called in the spec), then `entry.canDecodeFileData()` returns `true`,
+and `decodeFileData` has no effect;
+the encoded file data is the same as the decoded file data without needing to be piped through any transform filter.
 
-The `decrypt` option must be `null` (or omitted) for non-encrypted entries, and `false` for encrypted entries.
-Omitting the `decrypt` option (or specifying it as `null`) for an encrypted entry
-will result in the `callback` receiving an `err`.
-This default behavior is so that clients not accounting for encrypted files aren't surprised by bogus file data.
+*DEPRECATED*:
+Before the `decodeFileData: false` option was introduced to this API,
+the `decompress` and `decrypt` options were used to get the file's raw data.
+Their usage is rather complicated, and is no longer documented or recommended,
+but their behavior is maintained for compatibility.
 
-The `start` (inclusive) and `end` (exclusive) options are byte offsets into this entry's file data,
+The `start` (inclusive) and `end` (exclusive) options are byte offsets into this entry's raw file data,
 and can be used to obtain part of an entry's file data rather than the whole thing.
-If either of these options are specified and non-`null`,
-then the above options must be used to obain the file's raw data.
-Speficying `{start: 0, end: entry.compressedSize}` will result in the complete file,
+If either of these options is specified and non-`null`, then `decodeFileData` must be `false`.
+Specifying `{start: 0, end: entry.compressedSize}` will result in the complete file,
 which is effectively the default values for these options,
 but note that unlike omitting the options, when you specify `start` or `end` as any non-`null` value,
-the above requirement is still enforced that you must also pass the appropriate options to get the file's raw data.
+you must also provide `decodeFileData` as described above.
+
+*DEPRECATED*:
+For compatibility with earlier versions of yauzl, `start` and `end` can be used for entries when
+`entry.canDecodeFileData()` returns `true` and `entry.isCompressed()` returns `false`.
+Additionally, `start` and `end` can be used when the deprecated `decompress` and `decrypt` options are used appropriately.
+The recommended usage is to simply specify `decodeFileData: false` whenever `start` and `end` are used.
 
 It's possible for the `readStream` provided to the `callback` to emit errors for several reasons.
 For example, if zlib cannot decompress the data, the zlib error will be emitted from the `readStream`.
@@ -394,28 +402,33 @@ Effectively implemented as:
 return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime);
 ```
 
-#### isEncrypted()
+#### canDecodeFileData()
 
-Returns is this entry encrypted with "Traditional Encryption".
-Effectively implemented as:
+If this method returns `false`, then calling `openReadStream()` with `decodeFileData` effectively `true` will result
+in the `callback` receiving an error, such as an error for an unsupported compression method.
+If this method returns `true`, yauzl is not aware of any reason why attempting to decoding the file data would fail.
+This method is currently implemented effectively like this:
 
 ```js
-return (this.generalPurposeBitFlag & 0x1) !== 0;
+return (this.compressionMethod === 0 || this.compressionMethod === 8) &&
+       (this.generalPurposeBitFlag & 0x1) === 0;
 ```
 
-See `openReadStream()` for the implications of this value.
+If yauzl adds support for more compression methods, or adds early detection for more cases where decoding file data will fail,
+this implementation will change to reflect those additions.
 
-Note that "Strong Encryption" is not supported, and will result in an `"error"` event emitted from the `ZipFile`.
+#### isEncrypted()
+
+*DEPRECATED*: Use `canDecodeFileData()`, or check this entry's metadata yourself.
 
 #### isCompressed()
 
-Effectively implemented as:
+If `canDecodeFileData()` returns `true`,
+then this method indicates that decoding the file data will perform non-trivial decompression.
+If `canDecodeFileData()` returns `false`,
+then this method is not meaningful.
 
-```js
-return this.compressionMethod === 8;
-```
-
-See `openReadStream()` for the implications of this value.
+See `openReadStream()`.
 
 ### Class: RandomAccessReader
 

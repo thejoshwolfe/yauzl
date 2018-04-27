@@ -432,30 +432,43 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
     callback = options;
     options = {};
   } else {
-    // validate options that the caller has no excuse to get wrong
-    if (options.decrypt != null) {
-      if (!entry.isEncrypted()) {
-        throw new Error("options.decrypt can only be specified for encrypted entries");
+    if (options.decodeFileData === false) {
+      // new, simple option
+      if (options.decrypt != null) {
+        throw new Error("cannot use options.decrypt when options.decodeFileData === false");
       }
-      if (options.decrypt !== false) throw new Error("invalid options.decrypt value: " + options.decrypt);
-      if (entry.isCompressed()) {
-        if (options.decompress !== false) throw new Error("entry is encrypted and compressed, and options.decompress !== false");
+      if (options.decompress != null) {
+        throw new Error("cannot use options.decompress when options.decodeFileData === false");
       }
-    }
-    if (options.decompress != null) {
-      if (!entry.isCompressed()) {
-        throw new Error("options.decompress can only be specified for compressed entries");
+      // start and end are allowed
+    } else {
+      // old, complicated options
+      // validate options that the caller has no excuse to get wrong
+      if (options.decrypt != null) {
+        if (!entry.isEncrypted()) {
+          throw new Error("options.decrypt can only be specified for encrypted entries");
+        }
+        if (options.decrypt !== false) throw new Error("invalid options.decrypt value: " + options.decrypt);
+        if (entry.isCompressed()) {
+          if (options.decompress !== false) throw new Error("entry is encrypted and compressed, and options.decompress !== false");
+        }
       }
-      if (!(options.decompress === false || options.decompress === true)) {
-        throw new Error("invalid options.decompress value: " + options.decompress);
+      if (options.decompress != null) {
+        if (!entry.isCompressed()) {
+          throw new Error("options.decompress can only be specified for compressed entries");
+        }
+        if (!(options.decompress === false || options.decompress === true)) {
+          throw new Error("invalid options.decompress value: " + options.decompress);
+        }
+        decompress = options.decompress;
       }
-    }
-    if (options.start != null || options.end != null) {
-      if (entry.isCompressed() && options.decompress !== false) {
-        throw new Error("start/end range not allowed for compressed entry without options.decompress === false");
-      }
-      if (entry.isEncrypted() && options.decrypt !== false) {
-        throw new Error("start/end range not allowed for encrypted entry without options.decrypt === false");
+      if (options.start != null || options.end != null) {
+        if (entry.isCompressed() && options.decompress !== false) {
+          throw new Error("start/end range not allowed for compressed entry without options.decompress === false");
+        }
+        if (entry.isEncrypted() && options.decrypt !== false) {
+          throw new Error("start/end range not allowed for encrypted entry without options.decrypt === false");
+        }
       }
     }
     if (options.start != null) {
@@ -470,12 +483,15 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
       if (relativeEnd < relativeStart) throw new Error("options.end < options.start");
     }
   }
+
   // any further errors can either be caused by the zipfile,
   // or were introduced in a minor version of yauzl,
   // so should be passed to the client rather than thrown.
   if (!self.isOpen) return callback(new Error("closed"));
   if (entry.isEncrypted()) {
-    if (options.decrypt !== false) return callback(new Error("entry is encrypted, and options.decrypt !== false"));
+    if (!(options.decrypt === false || options.decodeFileData === false)) {
+      return callback(new Error("entry is encrypted"));
+    }
   }
   // make sure we don't lose the fd before we open the actual read stream
   self.reader.ref();
@@ -505,14 +521,20 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
       // 30+n - Extra field
       var localFileHeaderEnd = entry.relativeOffsetOfLocalHeader + buffer.length + fileNameLength + extraFieldLength;
       var decompress;
-      if (entry.compressionMethod === 0) {
-        // 0 - The file is stored (no compression)
+      if (options.decodeFileData === false) {
         decompress = false;
-      } else if (entry.compressionMethod === 8) {
-        // 8 - The file is Deflated
-        decompress = options.decompress != null ? options.decompress : true;
       } else {
-        return callback(new Error("unsupported compression method: " + entry.compressionMethod));
+        switch (entry.compressionMethod) {
+          case 0: // stored
+            decompress = false;
+            break;
+          case 8: // deflate
+            decompress = options.decompress != null ? options.decompress : true;
+            break;
+          default: // unsupported
+            // this error needs to happen after the error checks above for compatibility with earlier versions of yauzl.
+            return callback(new Error("unsupported compression method: " + entry.compressionMethod));
+        }
       }
       var fileDataStart = localFileHeaderEnd;
       var fileDataEnd = fileDataStart + entry.compressedSize;
