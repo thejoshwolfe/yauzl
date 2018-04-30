@@ -82,6 +82,9 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
   if (options.decodeStrings == null) options.decodeStrings = true;
   var decodeStrings = !!options.decodeStrings;
   if (options.validateEntrySizes == null) options.validateEntrySizes = true;
+  var enableMacArchiveUtilityCorruptionRecoveryHeuristics = !!options.enableMacArchiveUtilityCorruptionRecoveryHeuristics;
+  var foundMacArchiveUtilityCorruption = false;
+  var macArchiveUtilityEndOfCentralDirectory = null;
   if (callback == null) callback = defaultCallback;
   if (typeof totalSize !== "number") throw new Error("expected totalSize parameter to be a number");
   if (totalSize > Number.MAX_SAFE_INTEGER) {
@@ -104,40 +107,108 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
   var bufferReadStart = totalSize - buffer.length;
   readAndAssertNoEof(reader, buffer, 0, bufferSize, bufferReadStart, function(err) {
     if (err) return callback(err);
-    for (var i = bufferSize - eocdrWithoutCommentSize; i >= 0; i -= 1) {
-      if (buffer.readUInt32LE(i) !== 0x06054b50) continue;
-      // found eocdr
-      var eocdrBuffer = buffer.slice(i);
-
-      // 0 - End of central directory signature = 0x06054b50
-      // 4 - Number of this disk
-      var diskNumber = eocdrBuffer.readUInt16LE(4);
-      if (diskNumber !== 0) {
-        return callback(new Error("multi-disk zip files are not supported: found disk number: " + diskNumber));
+    var i = bufferSize - eocdrWithoutCommentSize;
+    for (;; i -= 1) {
+      if (i < 0) {
+        return callback(new Error("end of central directory record signature not found"));
       }
-      // 6 - Disk where central directory starts
-      // 8 - Number of central directory records on this disk
-      // 10 - Total number of central directory records
-      var entryCount = eocdrBuffer.readUInt16LE(10);
-      // 12 - Size of central directory (bytes)
-      // 16 - Offset of start of central directory, relative to start of archive
-      var centralDirectoryOffset = eocdrBuffer.readUInt32LE(16);
-      // 20 - Comment length
-      var commentLength = eocdrBuffer.readUInt16LE(20);
-      var expectedCommentLength = eocdrBuffer.length - eocdrWithoutCommentSize;
-      if (commentLength !== expectedCommentLength) {
-        return callback(new Error("invalid comment length. expected: " + expectedCommentLength + ". found: " + commentLength));
+      if (buffer.readUInt32LE(i) === 0x06054b50) {
+        // found eocdr
+        break;
       }
-      // 22 - Comment
-      // the encoding is always cp437.
-      var comment = decodeStrings ? decodeBuffer(eocdrBuffer, 22, eocdrBuffer.length, false)
-                                  : eocdrBuffer.slice(22);
+    }
 
-      if (!(entryCount === 0xffff || centralDirectoryOffset === 0xffffffff)) {
-        return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings, options.validateEntrySizes));
+    var eocdrBuffer = buffer.slice(i);
+    var eocdrOffset = bufferReadStart + i;
+    macArchiveUtilityEndOfCentralDirectory = eocdrOffset;
+
+    // 0 - End of central directory signature = 0x06054b50
+    // 4 - Number of this disk
+    var diskNumber = eocdrBuffer.readUInt16LE(4);
+    if (diskNumber !== 0) {
+      return callback(new Error("multi-disk zip files are not supported: found disk number: " + diskNumber));
+    }
+    // 6 - Disk where central directory starts
+    // 8 - Number of central directory records on this disk
+    // 10 - Total number of central directory records
+    var entryCount = eocdrBuffer.readUInt16LE(10);
+    // 12 - Size of central directory (bytes)
+    // 16 - Offset of start of central directory, relative to start of archive
+    var centralDirectoryOffset = eocdrBuffer.readUInt32LE(16);
+    // 20 - Comment length
+    var commentLength = eocdrBuffer.readUInt16LE(20);
+    var expectedCommentLength = eocdrBuffer.length - eocdrWithoutCommentSize;
+    if (commentLength !== expectedCommentLength) {
+      return callback(new Error("invalid comment length. expected: " + expectedCommentLength + ". found: " + commentLength));
+    }
+    // 22 - Comment
+    // the encoding is always cp437.
+    var comment = decodeStrings ? decodeBuffer(eocdrBuffer, 22, eocdrBuffer.length, false)
+                                : eocdrBuffer.slice(22);
+
+    if (enableMacArchiveUtilityCorruptionRecoveryHeuristics) {
+      return checkMacStuff();
+    } else {
+      return checkForZip64();
+    }
+
+    function checkMacStuff() {
+      // check for overflow corruption in centralDirectoryOffset
+      var centralDirectorySize = eocdrBuffer.readUInt32LE(12);
+      if (centralDirectorySize > eocdrOffset) {
+        return callback(new Error("Size of central directory overflow: " + centralDirectorySize + " > " + eocdrOffset));
+      }
+      if (eocdrOffset - centralDirectorySize === centralDirectoryOffset) {
+        // no problems here, officer
+        return checkForZip64();
+      }
+      // Something's wrong.
+      if (toUint32(eocdrOffset - centralDirectorySize) === toUint32(centralDirectoryOffset)) {
+        // looks like 32-bit overflow corruption.
+        return nextCdrOffset();
+      } else {
+        // well this is all sorts of wrong.
+        return callback(new Error("Size of central directory mismatch. expected: " + (eocdrOffset - centralDirectoryOffset) + ". found: " + centralDirectorySize));
+      }
+
+      function nextCdrOffset() {
+        // assume the size of the central directory is small and search backwards for the real central directory offset.
+        centralDirectoryOffset = eocdrOffset - centralDirectorySize;
+        var cdrBuffer = newBuffer(46);
+        readAndAssertNoEof(reader, cdrBuffer, 0, cdrBuffer.length, centralDirectoryOffset, function(err) {
+          if (err) return callback(err);
+          // 0 - Central directory file header signature
+          if (cdrBuffer.readUInt32LE(0) === 0x02014b50) {
+            // this might be it...
+            // 42 - Relative offset of local file header
+            if (cdrBuffer.readUInt32LE(42) === 0) {
+              // found it
+              foundMacArchiveUtilityCorruption = true;
+              return checkForZip64();
+            }
+            // we're still in the middle of the central directory
+          }
+          // keep looking
+          centralDirectorySize += 0x100000000;
+          if (centralDirectorySize > eocdrOffset) {
+            return callback(new Error("Unable to find real start of central directory after Mac Archive Utility overflow corruption"));
+          }
+
+          nextCdrOffset();
+        });
+      }
+    }
+
+    function checkForZip64() {
+      if (foundMacArchiveUtilityCorruption ||
+          !(entryCount === 0xffff || centralDirectoryOffset === 0xffffffff)) {
+        // not ZIP64 format
+        return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings, options.validateEntrySizes, enableMacArchiveUtilityCorruptionRecoveryHeuristics, foundMacArchiveUtilityCorruption));
       }
 
       // ZIP64 format
+      enableMacArchiveUtilityCorruptionRecoveryHeuristics = false;
+      macArchiveUtilityEndOfCentralDirectory = null;
 
       // ZIP64 Zip64 end of central directory locator
       var zip64EocdlBuffer = newBuffer(20);
@@ -175,17 +246,15 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
           // 48 - offset of start of central directory with respect to the starting disk number     8 bytes
           centralDirectoryOffset = readUInt64LE(zip64EocdrBuffer, 48);
           // 56 - zip64 extensible data sector                                (variable size)
-          return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings, options.validateEntrySizes));
+          return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings, options.validateEntrySizes, enableMacArchiveUtilityCorruptionRecoveryHeuristics, foundMacArchiveUtilityCorruption, macArchiveUtilityEndOfCentralDirectory));
         });
       });
-      return;
     }
-    callback(new Error("end of central directory record signature not found"));
   });
 }
 
 util.inherits(ZipFile, EventEmitter);
-function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, autoClose, lazyEntries, decodeStrings, validateEntrySizes) {
+function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, autoClose, lazyEntries, decodeStrings, validateEntrySizes, enableMacArchiveUtilityCorruptionRecoveryHeuristics, foundMacArchiveUtilityCorruption, macArchiveUtilityEndOfCentralDirectory) {
   var self = this;
   EventEmitter.call(self);
   self.reader = reader;
@@ -206,6 +275,9 @@ function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, 
   self.lazyEntries = !!lazyEntries;
   self.decodeStrings = !!decodeStrings;
   self.validateEntrySizes = !!validateEntrySizes;
+  self.enableMacArchiveUtilityCorruptionRecoveryHeuristics = enableMacArchiveUtilityCorruptionRecoveryHeuristics;
+  self.foundMacArchiveUtilityCorruption = foundMacArchiveUtilityCorruption;
+  self.macArchiveUtilityEndOfCentralDirectory = macArchiveUtilityEndOfCentralDirectory;
   self.isOpen = true;
   self.emittedError = false;
 
@@ -233,15 +305,44 @@ ZipFile.prototype.readEntry = function() {
 };
 ZipFile.prototype._readEntry = function() {
   var self = this;
-  if (self.entryCount === self.entriesRead) {
-    // done with metadata
-    setImmediate(function() {
-      if (self.autoClose) self.close();
-      if (self.emittedError) return;
-      self.emit("end");
-    });
-    return;
+  if (self.entriesRead === self.entryCount) {
+    // we might be done.
+    if (self.enableMacArchiveUtilityCorruptionRecoveryHeuristics && !self.emittedError) {
+      return checkForEntryCountOverflow();
+    } else {
+      // done reading the central directory
+      return setImmediate(closeAndEmitEnd);
+    }
   }
+  function closeAndEmitEnd() {
+    if (self.autoClose) self.close();
+    if (self.emittedError) return;
+    self.emit("end");
+  }
+  function checkForEntryCountOverflow() {
+    // check for corruption in entryCount
+    if (self.readEntryCursor >= self.macArchiveUtilityEndOfCentralDirectory) {
+      // never mind.
+      return setImmediate(closeAndEmitEnd);
+    }
+    // there's extra space in the central directory
+    var signatureBuffer = newBuffer(4);
+    readAndAssertNoEof(self.read, signatureBuffer, 0, signatureBuffer.length, self.readEntryCursor, function(err) {
+      if (err) return emitErrorAndAutoClose(self, err);
+
+      if (signatureBuffer.readUInt32LE(0) !== 0x02014b50) {
+        // never mind.
+        return closeAndEmitEnd();
+      }
+      // there are more entries
+      self.foundMacArchiveUtilityCorruption = true;
+      self.entryCount += 0x10000;
+      self.emit("entryCountOverflow");
+      // now, we can read more entries.
+      self._readEntry();
+    });
+  }
+
   if (self.emittedError) return;
   var buffer = newBuffer(46);
   readAndAssertNoEof(self.reader, buffer, 0, buffer.length, self.readEntryCursor, function(err) {
@@ -325,9 +426,10 @@ ZipFile.prototype._readEntry = function() {
       self.readEntryCursor += buffer.length;
       self.entriesRead += 1;
 
-      if (entry.uncompressedSize            === 0xffffffff ||
-          entry.compressedSize              === 0xffffffff ||
-          entry.relativeOffsetOfLocalHeader === 0xffffffff) {
+      if (!self.foundMacArchiveUtilityCorruption &&
+          (entry.uncompressedSize            === 0xffffffff ||
+           entry.compressedSize              === 0xffffffff ||
+           entry.relativeOffsetOfLocalHeader === 0xffffffff)) {
         // ZIP64 format
         // find the Zip64 Extended Information Extra Field
         var zip64EiefBuffer = null;
@@ -790,6 +892,11 @@ function readUInt64LE(buffer, offset) {
   return upper32 * 0x100000000 + lower32;
   // as long as we're bounds checking the result of this function against the total file size,
   // we'll catch any overflow errors, because we already made sure the total file size was within reason.
+}
+
+// truncates/bitcasts to unsigned 32-bit integer.
+function toUint32(x) {
+  return x >>> 0;
 }
 
 // Node 10 deprecated new Buffer().
