@@ -365,7 +365,7 @@ This library looks for and reads the ZIP64 Extended Information Extra Field (0x0
 in order to support ZIP64 format zip files.
 
 This library also looks for and reads the Info-ZIP Unicode Path Extra Field (0x7075)
-in order to support some zipfiles that use it instead of General Purpose Bit 8
+in order to support some zipfiles that use it instead of General Purpose Bit 11
 to convey `UTF-8` file names.
 When the field is identified and verified to be reliable (see the zipfile spec),
 the the file name in this field is stored in the `fileName` property,
