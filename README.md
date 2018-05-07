@@ -594,8 +594,10 @@ This library makes no attempt to interpret the Language Encoding Flag.
 
 ## Change History
 
+ * 2.10.0
+   * Removed `tools/hexdump-zip.js` and `tools/hex2bin.js`. Those tools are now located here: [thejoshwolfe/hexdump-zip](https://github.com/thejoshwolfe/hexdump-zip) and [thejoshwolfe/hex2bin](https://github.com/thejoshwolfe/hex2bin)
  * 2.9.1
-   * Remove `console.log()` accidentally introduced in 2.9.0. [issue #64](https://github.com/thejoshwolfe/yauzl/issues/64)
+   * Removed `console.log()` accidentally introduced in 2.9.0. [issue #64](https://github.com/thejoshwolfe/yauzl/issues/64)
  * 2.9.0
    * Throw an exception if `readEntry()` is called without `lazyEntries:true`. Previously this caused undefined behavior. [issue #63](https://github.com/thejoshwolfe/yauzl/issues/63)
  * 2.8.0
