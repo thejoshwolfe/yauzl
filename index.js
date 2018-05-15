@@ -142,7 +142,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
       // ZIP64 Zip64 end of central directory locator
       var zip64EocdlBuffer = newBuffer(20);
       var zip64EocdlOffset = bufferReadStart + i - zip64EocdlBuffer.length;
-      readAndAssertNoEof(reader, zip64EocdlBuffer, 0, zip64EocdlBuffer.length, zip64EocdlOffset, function(err) {
+      readAndAssertNoEofWithCache(reader, zip64EocdlBuffer, 0, zip64EocdlBuffer.length, zip64EocdlOffset, buffer, bufferReadStart, function(err) {
         if (err) return callback(err);
 
         // 0 - zip64 end of central dir locator signature = 0x07064b50
@@ -156,7 +156,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
 
         // ZIP64 end of central directory record
         var zip64EocdrBuffer = newBuffer(56);
-        readAndAssertNoEof(reader, zip64EocdrBuffer, 0, zip64EocdrBuffer.length, zip64EocdrOffset, function(err) {
+        readAndAssertNoEofWithCache(reader, zip64EocdrBuffer, 0, zip64EocdrBuffer.length, zip64EocdrOffset, buffer, bufferReadStart, function(err) {
           if (err) return callback(err);
 
           // 0 - zip64 end of central dir signature                           4 bytes  (0x06064b50)
@@ -621,6 +621,38 @@ function readAndAssertNoEof(reader, buffer, offset, length, position, callback) 
     }
     callback();
   });
+}
+
+function readAndAssertNoEofWithCache(reader, buffer, offset, length, position, cacheBuffer, cachePosition, callback) {
+  var end = position + length,
+    cacheLength = cacheBuffer.length,
+    cacheEnd = cachePosition + cacheLength;
+
+  if (length === 0) {
+    readAndAssertNoEof(reader, buffer, offset, length, position, callback);
+  } else if (cachePosition <= position && cacheEnd >= end) {
+    // whole of read cached
+    cacheBuffer.copy(buffer, offset, position - cachePosition, end - cachePosition);
+    callback();
+  } else if (cachePosition <= position && cacheEnd > position) {
+    // start of read cached
+    cacheBuffer.copy(buffer, offset, position - cachePosition, cacheLength);
+    readAndAssertNoEof(reader, buffer, offset + cacheEnd - position, end - cacheEnd, cacheEnd, callback);
+  } else if (cachePosition < end && cacheEnd >= end) {
+    // end of read cached
+    cacheBuffer.copy(buffer, offset + cachePosition - position, 0, end - cachePosition);
+    readAndAssertNoEof(reader, buffer, offset, cachePosition - position, position, callback);
+  } else if (cachePosition > position && cacheEnd < end) {
+    // middle of read cached
+    cacheBuffer.copy(buffer, offset + cachePosition - position, 0, cacheLength);
+    readAndAssertNoEof(reader, buffer, offset, cachePosition - position, position, function(err) {
+      if (err) return callback(err);
+      readAndAssertNoEof(reader, buffer, offset + cacheEnd - position, end - cacheEnd, cacheEnd, callback);
+    });
+  } else {
+    // none of read cached
+    readAndAssertNoEof(reader, buffer, offset, length, position, callback);
+  }
 }
 
 util.inherits(AssertByteCountStream, Transform);
