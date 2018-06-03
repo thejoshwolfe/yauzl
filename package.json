@@ -26,7 +26,7 @@
   },
   "homepage": "https://github.com/thejoshwolfe/yauzl",
   "dependencies": {
-    "fd-slicer": "~1.0.1",
+    "fd-slicer": "~1.1.0",
     "buffer-crc32": "~0.2.3"
   },
   "devDependencies": {

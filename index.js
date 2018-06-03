@@ -66,8 +66,8 @@ function fromBuffer(buffer, options, callback) {
   if (options.lazyEntries == null) options.lazyEntries = false;
   if (options.decodeStrings == null) options.decodeStrings = true;
   if (options.validateEntrySizes == null) options.validateEntrySizes = true;
-  // i got your open file right here.
-  var reader = fd_slicer.createFromBuffer(buffer);
+  // limit the max chunk size. see https://github.com/thejoshwolfe/yauzl/issues/87
+  var reader = fd_slicer.createFromBuffer(buffer, {maxChunkSize: 0x10000});
   fromRandomAccessReader(reader, buffer.length, options, callback);
 }
 
