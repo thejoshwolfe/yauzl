@@ -28,6 +28,7 @@ function open(path, options, callback) {
   if (options.lazyEntries == null) options.lazyEntries = false;
   if (options.decodeStrings == null) options.decodeStrings = true;
   if (options.validateEntrySizes == null) options.validateEntrySizes = true;
+  if (options.strictFileNames == null) options.strictFileNames = false;
   if (callback == null) callback = defaultCallback;
   fs.open(path, "r", function(err, fd) {
     if (err) return callback(err);
@@ -48,6 +49,7 @@ function fromFd(fd, options, callback) {
   if (options.lazyEntries == null) options.lazyEntries = false;
   if (options.decodeStrings == null) options.decodeStrings = true;
   if (options.validateEntrySizes == null) options.validateEntrySizes = true;
+  if (options.strictFileNames == null) options.strictFileNames = false;
   if (callback == null) callback = defaultCallback;
   fs.fstat(fd, function(err, stats) {
     if (err) return callback(err);
@@ -66,6 +68,7 @@ function fromBuffer(buffer, options, callback) {
   if (options.lazyEntries == null) options.lazyEntries = false;
   if (options.decodeStrings == null) options.decodeStrings = true;
   if (options.validateEntrySizes == null) options.validateEntrySizes = true;
+  if (options.strictFileNames == null) options.strictFileNames = false;
   // limit the max chunk size. see https://github.com/thejoshwolfe/yauzl/issues/87
   var reader = fd_slicer.createFromBuffer(buffer, {maxChunkSize: 0x10000});
   fromRandomAccessReader(reader, buffer.length, options, callback);
@@ -82,6 +85,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
   if (options.decodeStrings == null) options.decodeStrings = true;
   var decodeStrings = !!options.decodeStrings;
   if (options.validateEntrySizes == null) options.validateEntrySizes = true;
+  if (options.strictFileNames == null) options.strictFileNames = false;
   if (callback == null) callback = defaultCallback;
   if (typeof totalSize !== "number") throw new Error("expected totalSize parameter to be a number");
   if (totalSize > Number.MAX_SAFE_INTEGER) {
@@ -134,7 +138,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
                                   : eocdrBuffer.slice(22);
 
       if (!(entryCount === 0xffff || centralDirectoryOffset === 0xffffffff)) {
-        return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings, options.validateEntrySizes));
+        return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings, options.validateEntrySizes, options.strictFileNames));
       }
 
       // ZIP64 format
@@ -175,7 +179,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
           // 48 - offset of start of central directory with respect to the starting disk number     8 bytes
           centralDirectoryOffset = readUInt64LE(zip64EocdrBuffer, 48);
           // 56 - zip64 extensible data sector                                (variable size)
-          return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings, options.validateEntrySizes));
+          return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings, options.validateEntrySizes, options.strictFileNames));
         });
       });
       return;
@@ -185,7 +189,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
 }
 
 util.inherits(ZipFile, EventEmitter);
-function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, autoClose, lazyEntries, decodeStrings, validateEntrySizes) {
+function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, autoClose, lazyEntries, decodeStrings, validateEntrySizes, strictFileNames) {
   var self = this;
   EventEmitter.call(self);
   self.reader = reader;
@@ -206,6 +210,7 @@ function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, 
   self.lazyEntries = !!lazyEntries;
   self.decodeStrings = !!decodeStrings;
   self.validateEntrySizes = !!validateEntrySizes;
+  self.strictFileNames = !!strictFileNames;
   self.isOpen = true;
   self.emittedError = false;
 
@@ -413,7 +418,11 @@ ZipFile.prototype._readEntry = function() {
       }
 
       if (self.decodeStrings) {
-        var errorMessage = validateFileName(entry.fileName);
+        if (!self.strictFileNames) {
+          // allow backslash
+          entry.fileName = entry.fileName.replace(/\\/g, "/");
+        }
+        var errorMessage = validateFileName(entry.fileName, self.validateFileNameOptions);
         if (errorMessage != null) return emitErrorAndAutoClose(self, new Error(errorMessage));
       }
       self.emit("entry", entry);

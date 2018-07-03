@@ -56,8 +56,17 @@ listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry
         var key = addUnicodeSupport(name);
         var realPath = path.join(expectedPathPrefix, name);
         if (fs.statSync(realPath).isFile()) {
-          if (path.basename(name) !== ".git_please_make_this_directory") {
-            expectedArchiveContents[key] = fs.readFileSync(realPath);
+          switch (path.basename(name)) {
+            case ".git_please_make_this_directory":
+              // ignore
+              break;
+            case ".dont_expect_an_empty_dir_entry_for_this_dir":
+              delete expectedArchiveContents[path.dirname(name)];
+              break;
+            default:
+              // normal file
+              expectedArchiveContents[key] = fs.readFileSync(realPath);
+              break;
           }
         } else {
           if (name !== ".") expectedArchiveContents[key] = DIRECTORY;
@@ -156,7 +165,15 @@ listZipFiles([path.join(__dirname, "failure")]).forEach(function(zipfilePath) {
   var emittedError = false;
   pend.go(function(cb) {
     var operationsInProgress = 0;
-    yauzl.open(zipfilePath, function(err, zipfile) {
+    if (/invalid characters in fileName/.test(zipfilePath)) {
+      // this error can only happen when you specify an option
+      yauzl.open(zipfilePath, {strictFileNames: true}, onZipFile);
+    } else {
+      yauzl.open(zipfilePath, onZipFile);
+    }
+    return;
+
+    function onZipFile(err, zipfile) {
       if (err) return checkErrorMessage(err);
       zipfile.on("error", function(err) {
         noEventsAllowedAfterError();
@@ -192,7 +209,7 @@ listZipFiles([path.join(__dirname, "failure")]).forEach(function(zipfilePath) {
           throw new Error(zipfilePath + ": expected failure");
         }
       }
-    });
+    }
     function checkErrorMessage(err) {
       var actualMessage = err.message.replace(/[^0-9A-Za-z-]+/g, " ");
       if (actualMessage !== expectedErrorMessage) {
@@ -362,6 +379,7 @@ function addUnicodeSupport(name) {
 function manuallyDecodeFileName(fileName) {
   // file names in this test suite are always utf8 compatible.
   fileName = fileName.toString("utf8");
+  fileName = fileName.replace("\\", "/");
   if (fileName === "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f") {
     // we're not doing the unicode path extra field decoding outside of yauzl.
     // just hardcode this answer.

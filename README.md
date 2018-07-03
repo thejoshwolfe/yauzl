@@ -65,7 +65,7 @@ function defaultCallback(err) {
 
 Calls `fs.open(path, "r")` and reads the `fd` effectively the same as `fromFd()` would.
 
-`options` may be omitted or `null`. The defaults are `{autoClose: true, lazyEntries: false, decodeStrings: true, validateEntrySizes: true}`.
+`options` may be omitted or `null`. The defaults are `{autoClose: true, lazyEntries: false, decodeStrings: true, validateEntrySizes: true, strictFileNames: false}`.
 
 `autoClose` is effectively equivalent to:
 
@@ -95,6 +95,17 @@ This check happens as early as possible, which is either before emitting each `"
 or during the `readStream` piping after calling `openReadStream()`.
 See `openReadStream()` for more information on defending against zip bomb attacks.
 
+When `strictFileNames` is `false` (the default) and `decodeStrings` is `true`,
+all backslash (`\`) characters in each `entry.fileName` are replaced with forward slashes (`/`).
+The spec forbids file names with backslashes,
+but Microsoft's `System.IO.Compression.ZipFile` class in .NET versions 4.5.0 until 4.6.1
+creates non-conformant zipfiles with backslashes in file names.
+`strictFileNames` is `false` by default so that clients can read these
+non-conformant zipfiles without knowing about this Microsoft-specific bug.
+When `strictFileNames` is `true` and `decodeStrings` is `true`,
+entries with backslashes in their file names will result in an error. See `validateFileName()`.
+When `decodeStrings` is `false`, `strictFileNames` has no effect.
+
 The `callback` is given the arguments `(err, zipfile)`.
 An `err` is provided if the End of Central Directory Record cannot be found, or if its metadata appears malformed.
 This kind of error usually indicates that this is not a zip file.
@@ -106,7 +117,7 @@ Reads from the fd, which is presumed to be an open .zip file.
 Note that random access is required by the zip file specification,
 so the fd cannot be an open socket or any other fd that does not support random access.
 
-`options` may be omitted or `null`. The defaults are `{autoClose: false, lazyEntries: false, decodeStrings: true, validateEntrySizes: true}`.
+`options` may be omitted or `null`. The defaults are `{autoClose: false, lazyEntries: false, decodeStrings: true, validateEntrySizes: true, strictFileNames: false}`.
 
 See `open()` for the meaning of the options and callback.
 
@@ -119,7 +130,7 @@ If a `ZipFile` is acquired from this method,
 it will never emit the `close` event,
 and calling `close()` is not necessary.
 
-`options` may be omitted or `null`. The defaults are `{lazyEntries: false, decodeStrings: true, validateEntrySizes: true}`.
+`options` may be omitted or `null`. The defaults are `{lazyEntries: false, decodeStrings: true, validateEntrySizes: true, strictFileNames: false}`.
 
 See `open()` for the meaning of the options and callback.
 The `autoClose` option is ignored for this method.
@@ -133,7 +144,7 @@ The `reader` parameter must be of a type that is a subclass of
 [RandomAccessReader](#class-randomaccessreader) that implements the required methods.
 The `totalSize` is a Number and indicates the total file size of the zip file.
 
-`options` may be omitted or `null`. The defaults are `{autoClose: true, lazyEntries: false, decodeStrings: true, validateEntrySizes: true}`.
+`options` may be omitted or `null`. The defaults are `{autoClose: true, lazyEntries: false, decodeStrings: true, validateEntrySizes: true, strictFileNames: false}`.
 
 See `open()` for the meaning of the options and callback.
 
@@ -156,7 +167,7 @@ if (errorMessage != null) throw new Error(errorMessage);
 ```
 
 This function is automatically run for each entry, as long as `decodeStrings` is `true`.
-See `open()` and `Event: "entry"` for more information.
+See `open()`, `strictFileNames`, and `Event: "entry"` for more information.
 
 ### Class: ZipFile
 
@@ -594,6 +605,8 @@ This library makes no attempt to interpret the Language Encoding Flag.
 
 ## Change History
 
+ * 2.10.0
+   * Added support for non-conformant zipfiles created by Microsoft, and added option `strictFileNames` to disable the workaround. [issue #66](https://github.com/thejoshwolfe/yauzl/issues/66), [issue #88](https://github.com/thejoshwolfe/yauzl/issues/88)
  * 2.9.2
    * Removed `tools/hexdump-zip.js` and `tools/hex2bin.js`. Those tools are now located here: [thejoshwolfe/hexdump-zip](https://github.com/thejoshwolfe/hexdump-zip) and [thejoshwolfe/hex2bin](https://github.com/thejoshwolfe/hex2bin)
    * Worked around performance problem with zlib when using `fromBuffer()` and `readStream.destroy()` for large compressed files. [issue #87](https://github.com/thejoshwolfe/yauzl/issues/87)
