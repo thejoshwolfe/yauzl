@@ -8,7 +8,7 @@
 // While async/await is still experimental, you also need
 // to run this example with --harmony-async-await
 
-let yauzl = require("../");
+let yauzl = require("../"); // replace with: let yauzl = require("yauzl");
 
 let simpleZipBuffer = new Buffer([
   80,75,3,4,20,0,8,8,0,0,134,96,146,74,0,0,

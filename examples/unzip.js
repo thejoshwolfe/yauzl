@@ -1,5 +1,5 @@
 
-var yauzl = require("../");
+var yauzl = require("../"); // replace with: var yauzl = require("yauzl");
 var path = require("path");
 var fs = require("fs");
 var util = require("util");

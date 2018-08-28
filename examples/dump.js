@@ -1,5 +1,5 @@
 
-var yauzl = require("../");
+var yauzl = require("../"); // replace with: var yauzl = require("yauzl");
 
 var paths = [];
 var dumpContents = true;
