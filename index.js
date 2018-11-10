@@ -272,44 +272,44 @@ ZipFile.prototype._readEntry = function() {
   if (self.emittedError) return;
 
   var entry = new Entry();
-  var buffer = self.centralDirectoryBuffer;
+  var buffer = self.centralDirectoryBuffer.slice(self.readEntryCursor, self.readEntryCursor + 46);
 
   // Read fixed-length entry fields (46 bytes)
 
   // 0 - Central directory file header signature
-  var signature = buffer.readUInt32LE(self.readEntryCursor + 0);
+  var signature = buffer.readUInt32LE(0);
   if (signature !== 0x02014b50) return emitErrorAndAutoClose(self, new Error("invalid central directory file header signature: 0x" + signature.toString(16)));
   // 4 - Version made by
-  entry.versionMadeBy = buffer.readUInt16LE(self.readEntryCursor + 4);
+  entry.versionMadeBy = buffer.readUInt16LE(4);
   // 6 - Version needed to extract (minimum)
-  entry.versionNeededToExtract = buffer.readUInt16LE(self.readEntryCursor + 6);
+  entry.versionNeededToExtract = buffer.readUInt16LE(6);
   // 8 - General purpose bit flag
-  entry.generalPurposeBitFlag = buffer.readUInt16LE(self.readEntryCursor + 8);
+  entry.generalPurposeBitFlag = buffer.readUInt16LE(8);
   // 10 - Compression method
-  entry.compressionMethod = buffer.readUInt16LE(self.readEntryCursor + 10);
+  entry.compressionMethod = buffer.readUInt16LE(10);
   // 12 - File last modification time
-  entry.lastModFileTime = buffer.readUInt16LE(self.readEntryCursor + 12);
+  entry.lastModFileTime = buffer.readUInt16LE(12);
   // 14 - File last modification date
-  entry.lastModFileDate = buffer.readUInt16LE(self.readEntryCursor + 14);
+  entry.lastModFileDate = buffer.readUInt16LE(14);
   // 16 - CRC-32
-  entry.crc32 = buffer.readUInt32LE(self.readEntryCursor + 16);
+  entry.crc32 = buffer.readUInt32LE(16);
   // 20 - Compressed size
-  entry.compressedSize = buffer.readUInt32LE(self.readEntryCursor + 20);
+  entry.compressedSize = buffer.readUInt32LE(20);
   // 24 - Uncompressed size
-  entry.uncompressedSize = buffer.readUInt32LE(self.readEntryCursor + 24);
+  entry.uncompressedSize = buffer.readUInt32LE(24);
   // 28 - File name length (n)
-  entry.fileNameLength = buffer.readUInt16LE(self.readEntryCursor + 28);
+  entry.fileNameLength = buffer.readUInt16LE(28);
   // 30 - Extra field length (m)
-  entry.extraFieldLength = buffer.readUInt16LE(self.readEntryCursor + 30);
+  entry.extraFieldLength = buffer.readUInt16LE(30);
   // 32 - File comment length (k)
-  entry.fileCommentLength = buffer.readUInt16LE(self.readEntryCursor + 32);
+  entry.fileCommentLength = buffer.readUInt16LE(32);
   // 34 - Disk number where file starts
   // 36 - Internal file attributes
-  entry.internalFileAttributes = buffer.readUInt16LE(self.readEntryCursor + 36);
+  entry.internalFileAttributes = buffer.readUInt16LE(36);
   // 38 - External file attributes
-  entry.externalFileAttributes = buffer.readUInt32LE(self.readEntryCursor + 38);
+  entry.externalFileAttributes = buffer.readUInt32LE(38);
   // 42 - Relative offset of local file header
-  entry.relativeOffsetOfLocalHeader = buffer.readUInt32LE(self.readEntryCursor + 42);
+  entry.relativeOffsetOfLocalHeader = buffer.readUInt32LE(42);
 
   if (entry.generalPurposeBitFlag & 0x40) return emitErrorAndAutoClose(self, new Error("strong encryption is not supported"));
 
@@ -317,15 +317,16 @@ ZipFile.prototype._readEntry = function() {
   self.readEntryCursor += 46;
 
   // Read variable-length entry fields (fileNameLength + extraFieldLength + fileCommentLength bytes)
+  buffer = self.centralDirectoryBuffer.slice(self.readEntryCursor, self.readEntryCursor + entry.fileNameLength + entry.extraFieldLength + entry.fileCommentLength);
 
   // 46 - File name
   var isUtf8 = (entry.generalPurposeBitFlag & 0x800) !== 0;
-  entry.fileName = self.decodeStrings ? decodeBuffer(buffer, self.readEntryCursor + 0, self.readEntryCursor + entry.fileNameLength, isUtf8)
-    : buffer.slice(self.readEntryCursor + 0, self.readEntryCursor + entry.fileNameLength);
+  entry.fileName = self.decodeStrings ? decodeBuffer(buffer, 0, entry.fileNameLength, isUtf8)
+    : buffer.slice(0, entry.fileNameLength);
 
   // 46+n - Extra field
   var fileCommentStart = entry.fileNameLength + entry.extraFieldLength;
-  var extraFieldBuffer = buffer.slice(self.readEntryCursor + entry.fileNameLength, self.readEntryCursor + fileCommentStart);
+  var extraFieldBuffer = buffer.slice(entry.fileNameLength, fileCommentStart);
   entry.extraFields = [];
   var i = 0;
   while (i < extraFieldBuffer.length - 3) {
@@ -344,8 +345,8 @@ ZipFile.prototype._readEntry = function() {
   }
 
   // 46+n+m - File comment
-  entry.fileComment = self.decodeStrings ? decodeBuffer(buffer, self.readEntryCursor + fileCommentStart, self.readEntryCursor + fileCommentStart + entry.fileCommentLength, isUtf8)
-    : buffer.slice(self.readEntryCursor + fileCommentStart, self.readEntryCursor + fileCommentStart + entry.fileCommentLength);
+  entry.fileComment = self.decodeStrings ? decodeBuffer(buffer, fileCommentStart, fileCommentStart + entry.fileCommentLength, isUtf8)
+    : buffer.slice(fileCommentStart, fileCommentStart + entry.fileCommentLength);
   // compatibility hack for https://github.com/thejoshwolfe/yauzl/issues/47
   entry.comment = entry.fileComment;
 
@@ -411,7 +412,7 @@ ZipFile.prototype._readEntry = function() {
         }
         // NameCRC32     4 bytes     File Name Field CRC32 Checksum
         var oldNameCrc32 = extraField.data.readUInt32LE(1);
-        if (crc32.unsigned(buffer.slice(self.readEntryCursor + 0, self.readEntryCursor + entry.fileNameLength)) !== oldNameCrc32) {
+        if (crc32.unsigned(buffer.slice(0, entry.fileNameLength)) !== oldNameCrc32) {
           // > If the CRC check fails, this UTF-8 Path Extra Field should be
           // > ignored and the File Name field in the header should be used instead.
           continue;
