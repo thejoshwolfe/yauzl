@@ -272,9 +272,9 @@ ZipFile.prototype._readEntry = function() {
   if (self.emittedError) return;
 
   var entry = new Entry();
-  var buffer = self.centralDirectoryBuffer.slice(self.readEntryCursor, self.readEntryCursor + 46);
 
   // Read fixed-length entry fields (46 bytes)
+  var buffer = self.centralDirectoryBuffer.slice(self.readEntryCursor, self.readEntryCursor + 46);
 
   // 0 - Central directory file header signature
   var signature = buffer.readUInt32LE(0);
