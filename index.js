@@ -314,7 +314,7 @@ ZipFile.prototype._readEntry = function() {
   if (entry.generalPurposeBitFlag & 0x40) return emitErrorAndAutoClose(self, new Error("strong encryption is not supported"));
 
   // fixed-length entry has been read
-  self.readEntryCursor += 46;
+  self.readEntryCursor += buffer.length;
 
   // Read variable-length entry fields (fileNameLength + extraFieldLength + fileCommentLength bytes)
   buffer = self.centralDirectoryBuffer.slice(self.readEntryCursor, self.readEntryCursor + entry.fileNameLength + entry.extraFieldLength + entry.fileCommentLength);
@@ -349,6 +349,10 @@ ZipFile.prototype._readEntry = function() {
     : buffer.slice(fileCommentStart, fileCommentStart + entry.fileCommentLength);
   // compatibility hack for https://github.com/thejoshwolfe/yauzl/issues/47
   entry.comment = entry.fileComment;
+
+  // variable-length entry fields read; update the cursor
+  self.readEntryCursor += buffer.length;
+  self.entriesRead += 1;
 
   if (entry.uncompressedSize === 0xffffffff ||
     entry.compressedSize === 0xffffffff ||
@@ -423,10 +427,6 @@ ZipFile.prototype._readEntry = function() {
       }
     }
   }
-
-  // variable-length entry fields read; update the cursor
-  self.readEntryCursor += entry.fileNameLength + entry.extraFieldLength + entry.fileCommentLength;
-  self.entriesRead += 1;
 
   // validate file size
   if (self.validateEntrySizes && entry.compressionMethod === 0) {
