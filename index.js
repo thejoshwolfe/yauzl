@@ -214,14 +214,7 @@ class CentralDirectoryEntryParser extends Transform {
     return this.parse(callback);
   }
 
-  // destroy was added in Node 8.0.0
-  // https://github.com/nodejs/node/pull/12925
-  destroy(err) {
-    // use existing functionality
-    if (super.destroy) {
-      return super.destroy(err);
-    }
-
+  fail(err) {
     // close the stream
     this.push(null);
     this.end();
@@ -238,7 +231,7 @@ class CentralDirectoryEntryParser extends Transform {
       // 0 - Central directory file header signature
       var signature = buffer.readUInt32LE(0);
       if (signature !== 0x02014b50) {
-        this.destroy(new Error("invalid central directory file header signature: 0x" + signature.toString(16)));
+        this.fail(new Error("invalid central directory file header signature: 0x" + signature.toString(16)));
       }
 
       // 4 - Version made by
@@ -274,7 +267,7 @@ class CentralDirectoryEntryParser extends Transform {
       entry.relativeOffsetOfLocalHeader = buffer.readUInt32LE(42);
 
       if (entry.generalPurposeBitFlag & 0x40) {
-        return this.destroy(new Error("strong encryption is not supported"));
+        return this.fail(new Error("strong encryption is not supported"));
       }
 
       this.entry = entry;
@@ -308,7 +301,7 @@ class CentralDirectoryEntryParser extends Transform {
         var dataStart = i + 4;
         var dataEnd = dataStart + dataSize;
         if (dataEnd > extraFieldBuffer.length) {
-          return this.destroy(new Error("extra field length exceeds extra field buffer size"));
+          return this.fail(new Error("extra field length exceeds extra field buffer size"));
         }
         var dataBuffer = newBuffer(dataSize);
         extraFieldBuffer.copy(dataBuffer, 0, dataStart, dataEnd);
@@ -339,13 +332,13 @@ class CentralDirectoryEntryParser extends Transform {
           }
         }
         if (zip64EiefBuffer == null) {
-          return this.destroy(new Error("expected zip64 extended information extra field"));
+          return this.fail(new Error("expected zip64 extended information extra field"));
         }
         var index = 0;
         // 0 - Original Size          8 bytes
         if (entry.uncompressedSize === 0xffffffff) {
           if (index + 8 > zip64EiefBuffer.length) {
-            return this.destroy(new Error("zip64 extended information extra field does not include uncompressed size"));
+            return this.fail(new Error("zip64 extended information extra field does not include uncompressed size"));
           }
           entry.uncompressedSize = readUInt64LE(zip64EiefBuffer, index);
           index += 8;
@@ -353,7 +346,7 @@ class CentralDirectoryEntryParser extends Transform {
         // 8 - Compressed Size        8 bytes
         if (entry.compressedSize === 0xffffffff) {
           if (index + 8 > zip64EiefBuffer.length) {
-            return this.destroy(new Error("zip64 extended information extra field does not include compressed size"));
+            return this.fail(new Error("zip64 extended information extra field does not include compressed size"));
           }
           entry.compressedSize = readUInt64LE(zip64EiefBuffer, index);
           index += 8;
@@ -361,7 +354,7 @@ class CentralDirectoryEntryParser extends Transform {
         // 16 - Relative Header Offset 8 bytes
         if (entry.relativeOffsetOfLocalHeader === 0xffffffff) {
           if (index + 8 > zip64EiefBuffer.length) {
-            return this.destroy(new Error("zip64 extended information extra field does not include relative header offset"));
+            return this.fail(new Error("zip64 extended information extra field does not include relative header offset"));
           }
           entry.relativeOffsetOfLocalHeader = readUInt64LE(zip64EiefBuffer, index);
           index += 8;
@@ -408,7 +401,7 @@ class CentralDirectoryEntryParser extends Transform {
         }
         if (entry.compressedSize !== expectedCompressedSize) {
           var msg = "compressed/uncompressed size mismatch for stored file: " + entry.compressedSize + " != " + entry.uncompressedSize;
-          return this.destroy(new Error(msg));
+          return this.fail(new Error(msg));
         }
       }
 
@@ -419,7 +412,7 @@ class CentralDirectoryEntryParser extends Transform {
         }
         var errorMessage = validateFileName(entry.fileName);
         if (errorMessage != null) {
-          return this.destroy(new Error(errorMessage));
+          return this.fail(new Error(errorMessage));
         }
       }
 
