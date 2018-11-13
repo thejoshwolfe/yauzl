@@ -124,6 +124,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
       // 10 - Total number of central directory records
       var entryCount = eocdrBuffer.readUInt16LE(10);
       // 12 - Size of central directory (bytes)
+      var centralDirectorySize = eocdrBuffer.readUInt32LE(12);
       // 16 - Offset of start of central directory, relative to start of archive
       var centralDirectoryOffset = eocdrBuffer.readUInt32LE(16);
       // 20 - Comment length
@@ -138,7 +139,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
                                   : eocdrBuffer.slice(22);
 
       if (!(entryCount === 0xffff || centralDirectoryOffset === 0xffffffff)) {
-        return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize - centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings, options.validateEntrySizes, options.strictFileNames));
+        return callback(null, new ZipFile(reader, centralDirectoryOffset, centralDirectorySize, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings, options.validateEntrySizes, options.strictFileNames));
       }
 
       // ZIP64 format
