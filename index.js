@@ -1,3 +1,5 @@
+"use strict";
+
 var fs = require("fs");
 var zlib = require("zlib");
 var fd_slicer = require("fd-slicer");
