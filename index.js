@@ -192,257 +192,261 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
   });
 }
 
-class CentralDirectoryEntryParser extends Transform {
-  constructor(options) {
-    super({
-      readableObjectMode: true
-    });
+util.inherits(CentralDirectoryEntryParser, Transform);
 
-    this.decodeStrings = !!options.decodeStrings;
-    this.strictFileNames = !!options.strictFileNames;
-    this.validateEntrySizes = !!options.validateEntrySizes;
+function CentralDirectoryEntryParser(options) {
+  if (!(this instanceof CentralDirectoryEntryParser)) {
+    return new CentralDirectoryEntryParser(options);
+  }
 
-    this.pending = Buffer.alloc(0);
+  Transform.call(this, {
+    readableObjectMode: true
+  });
 
+  this.decodeStrings = !!options.decodeStrings;
+  this.strictFileNames = !!options.strictFileNames;
+  this.validateEntrySizes = !!options.validateEntrySizes;
+
+  this.pending = newBuffer(0);
+
+  this.reset();
+}
+
+CentralDirectoryEntryParser.prototype._flush = function(callback) {
+  return this.parse(callback);
+}
+
+CentralDirectoryEntryParser.prototype._transform = function(chunk, _, callback) {
+  this.pending = Buffer.concat([this.pending, chunk]);
+
+  return this.parse(callback);
+}
+
+CentralDirectoryEntryParser.prototype.fail = function(err) {
+  // close the stream
+  this.push(null);
+  this.end();
+  this.emit("error", err);
+}
+
+CentralDirectoryEntryParser.prototype.parse = function(callback) {
+  var buffer = this.pending;
+
+  if (this.entry == null && buffer.length >= 46) {
+    // read fixed-length entry fields
+    var entry = new Entry();
+
+    // 0 - Central directory file header signature
+    var signature = buffer.readUInt32LE(0);
+    if (signature !== 0x02014b50) {
+      this.fail(new Error("invalid central directory file header signature: 0x" + signature.toString(16)));
+    }
+
+    // 4 - Version made by
+    entry.versionMadeBy = buffer.readUInt16LE(4);
+    // 6 - Version needed to extract (minimum)
+    entry.versionNeededToExtract = buffer.readUInt16LE(6);
+    // 8 - General purpose bit flag
+    entry.generalPurposeBitFlag = buffer.readUInt16LE(8);
+    // 10 - Compression method
+    entry.compressionMethod = buffer.readUInt16LE(10);
+    // 12 - File last modification time
+    entry.lastModFileTime = buffer.readUInt16LE(12);
+    // 14 - File last modification date
+    entry.lastModFileDate = buffer.readUInt16LE(14);
+    // 16 - CRC-32
+    entry.crc32 = buffer.readUInt32LE(16);
+    // 20 - Compressed size
+    entry.compressedSize = buffer.readUInt32LE(20);
+    // 24 - Uncompressed size
+    entry.uncompressedSize = buffer.readUInt32LE(24);
+    // 28 - File name length (n)
+    entry.fileNameLength = buffer.readUInt16LE(28);
+    // 30 - Extra field length (m)
+    entry.extraFieldLength = buffer.readUInt16LE(30);
+    // 32 - File comment length (k)
+    entry.fileCommentLength = buffer.readUInt16LE(32);
+    // 34 - Disk number where file starts
+    // 36 - Internal file attributes
+    entry.internalFileAttributes = buffer.readUInt16LE(36);
+    // 38 - External file attributes
+    entry.externalFileAttributes = buffer.readUInt32LE(38);
+    // 42 - Relative offset of local file header
+    entry.relativeOffsetOfLocalHeader = buffer.readUInt32LE(42);
+
+    if (entry.generalPurposeBitFlag & 0x40) {
+      return this.fail(new Error("strong encryption is not supported"));
+    }
+
+    this.entry = entry;
+    this.variableLength = entry.fileNameLength + entry.extraFieldLength + entry.fileCommentLength;
+
+    // set remainder
+    this.pending = buffer.slice(46);
+
+    // keep parsing (and clear the stack)
+    return setImmediate(this.parse.bind(this), callback);
+  }
+
+  if (this.entry != null && buffer.length >= this.variableLength) {
+    // Read variable-length entry fields (fileNameLength + extraFieldLength + fileCommentLength bytes)
+
+    var entry = this.entry;
+
+    // 46 - File name
+    var isUtf8 = (entry.generalPurposeBitFlag & 0x800) !== 0;
+    entry.fileName = this.decodeStrings ? decodeBuffer(buffer, 0, entry.fileNameLength, isUtf8)
+                                        : buffer.slice(0, entry.fileNameLength);
+
+    // 46+n - Extra field
+    var fileCommentStart = entry.fileNameLength + entry.extraFieldLength;
+    var extraFieldBuffer = buffer.slice(entry.fileNameLength, fileCommentStart);
+    entry.extraFields = [];
+    var i = 0;
+    while (i < extraFieldBuffer.length - 3) {
+      var headerId = extraFieldBuffer.readUInt16LE(i + 0);
+      var dataSize = extraFieldBuffer.readUInt16LE(i + 2);
+      var dataStart = i + 4;
+      var dataEnd = dataStart + dataSize;
+      if (dataEnd > extraFieldBuffer.length) {
+        return this.fail(new Error("extra field length exceeds extra field buffer size"));
+      }
+      var dataBuffer = newBuffer(dataSize);
+      extraFieldBuffer.copy(dataBuffer, 0, dataStart, dataEnd);
+      entry.extraFields.push({
+        id: headerId,
+        data: dataBuffer,
+      });
+      i = dataEnd;
+    }
+
+    // 46+n+m - File comment
+    entry.fileComment = this.decodeStrings ? decodeBuffer(buffer, fileCommentStart, fileCommentStart + entry.fileCommentLength, isUtf8)
+                                            : buffer.slice(fileCommentStart, fileCommentStart + entry.fileCommentLength);
+    // compatibility hack for https://github.com/thejoshwolfe/yauzl/issues/47
+    entry.comment = entry.fileComment;
+
+    if (entry.uncompressedSize === 0xffffffff ||
+      entry.compressedSize === 0xffffffff ||
+      entry.relativeOffsetOfLocalHeader === 0xffffffff) {
+      // ZIP64 format
+      // find the Zip64 Extended Information Extra Field
+      var zip64EiefBuffer = null;
+      for (var i = 0; i < entry.extraFields.length; i++) {
+        var extraField = entry.extraFields[i];
+        if (extraField.id === 0x0001) {
+          zip64EiefBuffer = extraField.data;
+          break;
+        }
+      }
+      if (zip64EiefBuffer == null) {
+        return this.fail(new Error("expected zip64 extended information extra field"));
+      }
+      var index = 0;
+      // 0 - Original Size          8 bytes
+      if (entry.uncompressedSize === 0xffffffff) {
+        if (index + 8 > zip64EiefBuffer.length) {
+          return this.fail(new Error("zip64 extended information extra field does not include uncompressed size"));
+        }
+        entry.uncompressedSize = readUInt64LE(zip64EiefBuffer, index);
+        index += 8;
+      }
+      // 8 - Compressed Size        8 bytes
+      if (entry.compressedSize === 0xffffffff) {
+        if (index + 8 > zip64EiefBuffer.length) {
+          return this.fail(new Error("zip64 extended information extra field does not include compressed size"));
+        }
+        entry.compressedSize = readUInt64LE(zip64EiefBuffer, index);
+        index += 8;
+      }
+      // 16 - Relative Header Offset 8 bytes
+      if (entry.relativeOffsetOfLocalHeader === 0xffffffff) {
+        if (index + 8 > zip64EiefBuffer.length) {
+          return this.fail(new Error("zip64 extended information extra field does not include relative header offset"));
+        }
+        entry.relativeOffsetOfLocalHeader = readUInt64LE(zip64EiefBuffer, index);
+        index += 8;
+      }
+      // 24 - Disk Start Number      4 bytes
+    }
+
+    // check for Info-ZIP Unicode Path Extra Field (0x7075)
+    // see https://github.com/thejoshwolfe/yauzl/issues/33
+    if (this.decodeStrings) {
+      for (var i = 0; i < entry.extraFields.length; i++) {
+        var extraField = entry.extraFields[i];
+        if (extraField.id === 0x7075) {
+          if (extraField.data.length < 6) {
+            // too short to be meaningful
+            continue;
+          }
+          // Version       1 byte      version of this extra field, currently 1
+          if (extraField.data.readUInt8(0) !== 1) {
+            // > Changes may not be backward compatible so this extra
+            // > field should not be used if the version is not recognized.
+            continue;
+          }
+          // NameCRC32     4 bytes     File Name Field CRC32 Checksum
+          var oldNameCrc32 = extraField.data.readUInt32LE(1);
+          if (crc32.unsigned(buffer.slice(0, entry.fileNameLength)) !== oldNameCrc32) {
+            // > If the CRC check fails, this UTF-8 Path Extra Field should be
+            // > ignored and the File Name field in the header should be used instead.
+            continue;
+          }
+          // UnicodeName   Variable    UTF-8 version of the entry File Name
+          entry.fileName = decodeBuffer(extraField.data, 5, extraField.data.length, true);
+          break;
+        }
+      }
+    }
+
+    // validate file size
+    if (this.validateEntrySizes && entry.compressionMethod === 0) {
+      var expectedCompressedSize = entry.uncompressedSize;
+      if (entry.isEncrypted()) {
+        // traditional encryption prefixes the file data with a header
+        expectedCompressedSize += 12;
+      }
+      if (entry.compressedSize !== expectedCompressedSize) {
+        var msg = "compressed/uncompressed size mismatch for stored file: " + entry.compressedSize + " != " + entry.uncompressedSize;
+        return this.fail(new Error(msg));
+      }
+    }
+
+    if (this.decodeStrings) {
+      if (!this.strictFileNames) {
+        // allow backslash
+        entry.fileName = entry.fileName.replace(/\\/g, "/");
+      }
+      var errorMessage = validateFileName(entry.fileName);
+      if (errorMessage != null) {
+        return this.fail(new Error(errorMessage));
+      }
+    }
+
+    // emit an entry
+    this.push(entry);
+
+    // set remainder
+    this.pending = buffer.slice(this.variableLength);
+
+    // reset
     this.reset();
+
+    // keep parsing (and clear the stack)
+    return setImmediate(this.parse.bind(this), callback);
   }
 
-  _flush(callback) {
-    return this.parse(callback);
-  }
+  // not enough bytes to read; stash and keep going
+  this.pending = buffer;
 
-  _transform(chunk, _, callback) {
-    this.pending = Buffer.concat([this.pending, chunk]);
+  // if fixed == null read fixed (46 bytes)
+  return callback();
+}
 
-    return this.parse(callback);
-  }
-
-  fail(err) {
-    // close the stream
-    this.push(null);
-    this.end();
-    this.emit("error", err);
-  }
-
-  parse(callback) {
-    var buffer = this.pending;
-
-    if (this.entry == null && buffer.length >= 46) {
-      // read fixed-length entry fields
-      var entry = new Entry();
-
-      // 0 - Central directory file header signature
-      var signature = buffer.readUInt32LE(0);
-      if (signature !== 0x02014b50) {
-        this.fail(new Error("invalid central directory file header signature: 0x" + signature.toString(16)));
-      }
-
-      // 4 - Version made by
-      entry.versionMadeBy = buffer.readUInt16LE(4);
-      // 6 - Version needed to extract (minimum)
-      entry.versionNeededToExtract = buffer.readUInt16LE(6);
-      // 8 - General purpose bit flag
-      entry.generalPurposeBitFlag = buffer.readUInt16LE(8);
-      // 10 - Compression method
-      entry.compressionMethod = buffer.readUInt16LE(10);
-      // 12 - File last modification time
-      entry.lastModFileTime = buffer.readUInt16LE(12);
-      // 14 - File last modification date
-      entry.lastModFileDate = buffer.readUInt16LE(14);
-      // 16 - CRC-32
-      entry.crc32 = buffer.readUInt32LE(16);
-      // 20 - Compressed size
-      entry.compressedSize = buffer.readUInt32LE(20);
-      // 24 - Uncompressed size
-      entry.uncompressedSize = buffer.readUInt32LE(24);
-      // 28 - File name length (n)
-      entry.fileNameLength = buffer.readUInt16LE(28);
-      // 30 - Extra field length (m)
-      entry.extraFieldLength = buffer.readUInt16LE(30);
-      // 32 - File comment length (k)
-      entry.fileCommentLength = buffer.readUInt16LE(32);
-      // 34 - Disk number where file starts
-      // 36 - Internal file attributes
-      entry.internalFileAttributes = buffer.readUInt16LE(36);
-      // 38 - External file attributes
-      entry.externalFileAttributes = buffer.readUInt32LE(38);
-      // 42 - Relative offset of local file header
-      entry.relativeOffsetOfLocalHeader = buffer.readUInt32LE(42);
-
-      if (entry.generalPurposeBitFlag & 0x40) {
-        return this.fail(new Error("strong encryption is not supported"));
-      }
-
-      this.entry = entry;
-      this.variableLength = entry.fileNameLength + entry.extraFieldLength + entry.fileCommentLength;
-
-      // set remainder
-      this.pending = buffer.slice(46);
-
-      // keep parsing (and clear the stack)
-      return setImmediate(this.parse.bind(this), callback);
-    }
-
-    if (this.entry != null && buffer.length >= this.variableLength) {
-      // Read variable-length entry fields (fileNameLength + extraFieldLength + fileCommentLength bytes)
-
-      var entry = this.entry;
-
-      // 46 - File name
-      var isUtf8 = (entry.generalPurposeBitFlag & 0x800) !== 0;
-      entry.fileName = this.decodeStrings ? decodeBuffer(buffer, 0, entry.fileNameLength, isUtf8)
-                                          : buffer.slice(0, entry.fileNameLength);
-
-      // 46+n - Extra field
-      var fileCommentStart = entry.fileNameLength + entry.extraFieldLength;
-      var extraFieldBuffer = buffer.slice(entry.fileNameLength, fileCommentStart);
-      entry.extraFields = [];
-      var i = 0;
-      while (i < extraFieldBuffer.length - 3) {
-        var headerId = extraFieldBuffer.readUInt16LE(i + 0);
-        var dataSize = extraFieldBuffer.readUInt16LE(i + 2);
-        var dataStart = i + 4;
-        var dataEnd = dataStart + dataSize;
-        if (dataEnd > extraFieldBuffer.length) {
-          return this.fail(new Error("extra field length exceeds extra field buffer size"));
-        }
-        var dataBuffer = newBuffer(dataSize);
-        extraFieldBuffer.copy(dataBuffer, 0, dataStart, dataEnd);
-        entry.extraFields.push({
-          id: headerId,
-          data: dataBuffer,
-        });
-        i = dataEnd;
-      }
-
-      // 46+n+m - File comment
-      entry.fileComment = this.decodeStrings ? decodeBuffer(buffer, fileCommentStart, fileCommentStart + entry.fileCommentLength, isUtf8)
-                                             : buffer.slice(fileCommentStart, fileCommentStart + entry.fileCommentLength);
-      // compatibility hack for https://github.com/thejoshwolfe/yauzl/issues/47
-      entry.comment = entry.fileComment;
-
-      if (entry.uncompressedSize === 0xffffffff ||
-        entry.compressedSize === 0xffffffff ||
-        entry.relativeOffsetOfLocalHeader === 0xffffffff) {
-        // ZIP64 format
-        // find the Zip64 Extended Information Extra Field
-        var zip64EiefBuffer = null;
-        for (var i = 0; i < entry.extraFields.length; i++) {
-          var extraField = entry.extraFields[i];
-          if (extraField.id === 0x0001) {
-            zip64EiefBuffer = extraField.data;
-            break;
-          }
-        }
-        if (zip64EiefBuffer == null) {
-          return this.fail(new Error("expected zip64 extended information extra field"));
-        }
-        var index = 0;
-        // 0 - Original Size          8 bytes
-        if (entry.uncompressedSize === 0xffffffff) {
-          if (index + 8 > zip64EiefBuffer.length) {
-            return this.fail(new Error("zip64 extended information extra field does not include uncompressed size"));
-          }
-          entry.uncompressedSize = readUInt64LE(zip64EiefBuffer, index);
-          index += 8;
-        }
-        // 8 - Compressed Size        8 bytes
-        if (entry.compressedSize === 0xffffffff) {
-          if (index + 8 > zip64EiefBuffer.length) {
-            return this.fail(new Error("zip64 extended information extra field does not include compressed size"));
-          }
-          entry.compressedSize = readUInt64LE(zip64EiefBuffer, index);
-          index += 8;
-        }
-        // 16 - Relative Header Offset 8 bytes
-        if (entry.relativeOffsetOfLocalHeader === 0xffffffff) {
-          if (index + 8 > zip64EiefBuffer.length) {
-            return this.fail(new Error("zip64 extended information extra field does not include relative header offset"));
-          }
-          entry.relativeOffsetOfLocalHeader = readUInt64LE(zip64EiefBuffer, index);
-          index += 8;
-        }
-        // 24 - Disk Start Number      4 bytes
-      }
-
-      // check for Info-ZIP Unicode Path Extra Field (0x7075)
-      // see https://github.com/thejoshwolfe/yauzl/issues/33
-      if (this.decodeStrings) {
-        for (var i = 0; i < entry.extraFields.length; i++) {
-          var extraField = entry.extraFields[i];
-          if (extraField.id === 0x7075) {
-            if (extraField.data.length < 6) {
-              // too short to be meaningful
-              continue;
-            }
-            // Version       1 byte      version of this extra field, currently 1
-            if (extraField.data.readUInt8(0) !== 1) {
-              // > Changes may not be backward compatible so this extra
-              // > field should not be used if the version is not recognized.
-              continue;
-            }
-            // NameCRC32     4 bytes     File Name Field CRC32 Checksum
-            var oldNameCrc32 = extraField.data.readUInt32LE(1);
-            if (crc32.unsigned(buffer.slice(0, entry.fileNameLength)) !== oldNameCrc32) {
-              // > If the CRC check fails, this UTF-8 Path Extra Field should be
-              // > ignored and the File Name field in the header should be used instead.
-              continue;
-            }
-            // UnicodeName   Variable    UTF-8 version of the entry File Name
-            entry.fileName = decodeBuffer(extraField.data, 5, extraField.data.length, true);
-            break;
-          }
-        }
-      }
-
-      // validate file size
-      if (this.validateEntrySizes && entry.compressionMethod === 0) {
-        var expectedCompressedSize = entry.uncompressedSize;
-        if (entry.isEncrypted()) {
-          // traditional encryption prefixes the file data with a header
-          expectedCompressedSize += 12;
-        }
-        if (entry.compressedSize !== expectedCompressedSize) {
-          var msg = "compressed/uncompressed size mismatch for stored file: " + entry.compressedSize + " != " + entry.uncompressedSize;
-          return this.fail(new Error(msg));
-        }
-      }
-
-      if (this.decodeStrings) {
-        if (!this.strictFileNames) {
-          // allow backslash
-          entry.fileName = entry.fileName.replace(/\\/g, "/");
-        }
-        var errorMessage = validateFileName(entry.fileName);
-        if (errorMessage != null) {
-          return this.fail(new Error(errorMessage));
-        }
-      }
-
-      // emit an entry
-      this.push(entry);
-
-      // set remainder
-      this.pending = buffer.slice(this.variableLength);
-
-      // reset
-      this.reset();
-
-      // keep parsing (and clear the stack)
-      return setImmediate(this.parse.bind(this), callback);
-    }
-
-    // not enough bytes to read; stash and keep going
-    this.pending = buffer;
-
-    // if fixed == null read fixed (46 bytes)
-    return callback();
-  }
-
-  reset() {
-    this.entry = null;
-    this.variableLength = null;
-  }
+CentralDirectoryEntryParser.prototype.reset = function() {
+  this.entry = null;
+  this.variableLength = null;
 }
 
 util.inherits(ZipFile, EventEmitter);
