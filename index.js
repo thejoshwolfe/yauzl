@@ -203,6 +203,9 @@ function CentralDirectoryEntryParser(options) {
     readableObjectMode: true
   });
 
+  // Node 0.10 support
+  this._readableState.objectMode = true;
+
   this.decodeStrings = !!options.decodeStrings;
   this.strictFileNames = !!options.strictFileNames;
   this.validateEntrySizes = !!options.validateEntrySizes;
