@@ -1,6 +1,7 @@
 var yauzl = require("../");
 var zip64 = require("./zip64");
 var rangeTest = require("./range-test");
+var zipInZipTest = require("./zip-in-zip-test");
 var fs = require("fs");
 var path = require("path");
 var Pend = require("pend");
@@ -346,6 +347,9 @@ pend.go(zip64.runTest);
 
 // openReadStream with range
 pend.go(rangeTest.runTest);
+
+// openReadStream with range for files in a zip that is in another zip
+pend.go(zipInZipTest.runTest);
 
 pend.wait(function() {
   // if you don't see this, something never happened.
