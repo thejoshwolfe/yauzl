@@ -493,6 +493,7 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
   self.reader.ref();
   var buffer = newBuffer(30);
   readAndAssertNoEof(self.reader, buffer, 0, buffer.length, entry.relativeOffsetOfLocalHeader, function(err) {
+    var unrefReader = true;
     try {
       if (err) return callback(err);
       // 0 - Local file header signature = 0x04034b50
@@ -582,6 +583,7 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
         end: fileDataStart + relativeEnd,
       };
       if (self.isReaderAsync) {
+        unrefReader = false;
         self.reader.createReadStream(createReadStreamOptions, function(err, readStream) {
           try {
             readStreamCallback(err, readStream);
@@ -593,7 +595,7 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
         readStreamCallback(null, self.reader.createReadStream(createReadStreamOptions));
       }
     } finally {
-      if (!self.isReaderAsync) {
+      if (unrefReader) {
         self.reader.unref();
       }
     }
