@@ -265,7 +265,7 @@ The `start` (inclusive) and `end` (exclusive) options are byte offsets into this
 and can be used to obtain part of an entry's file data rather than the whole thing.
 If either of these options are specified and non-`null`,
 then the above options must be used to obain the file's raw data.
-Speficying `{start: 0, end: entry.compressedSize}` will result in the complete file,
+Specifying `{start: 0, end: entry.compressedSize}` will result in the complete file,
 which is effectively the default values for these options,
 but note that unlike omitting the options, when you specify `start` or `end` as any non-`null` value,
 the above requirement is still enforced that you must also pass the appropriate options to get the file's raw data.
