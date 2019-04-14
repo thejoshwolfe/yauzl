@@ -95,8 +95,9 @@ function testBigFile(done) {
     {length: 8, slice: function(start, end) {
       // File Contents TODO: replace with large data
       console.log("slice", start, end);
-      var data = bufferFromArray([0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0xe7, 0x02, 0x00]);
-      return data.slice(start - this.start, end - this.start);
+      var localStart = start - this.start;
+      var localEnd = end - this.start;
+      return sliceDeflatedZeros(3, localStart, localEnd);
     }},
 
     {buffer: bufferFromArray([
@@ -164,7 +165,7 @@ function testBigFile(done) {
       0x8e, 0x4e,             // File last modification date
       0x20, 0x30, 0x3a, 0x36, // CRC-32
       0x08, 0x00, 0x00, 0x00, // Compressed size TODO
-      0x06, 0x00, 0x00, 0x00, // Uncompressed size TODO
+      0x03, 0x00, 0x00, 0x00, // Uncompressed size TODO
       0x05, 0x00,             // File name length (n)
       0x00, 0x00,             // Extra field length (m)
       0x00, 0x00,             // File comment length (k)
@@ -219,7 +220,16 @@ function testBigFile(done) {
     zipfile.on("entry", function(entry) {
       if (err) throw err;
       console.log("got entry: " + entry.fileName);
-      zipfile.readEntry();
+      zipfile.openReadStream(entry, function(err, readStream) {
+        if (err) throw err;
+        readStream.pipe(BufferList(function(err, contents) {
+          if (err) throw err;
+          var expectedContents = entry.fileName === "b.txt" ? bufferFromArray([0,0,0]) : bufferFromArray([]);
+          if (!buffersEqual(expectedContents, contents)) throw new Error("wrong contents");
+          console.log("entry data verified");
+          zipfile.readEntry();
+        }));
+      });
     });
     zipfile.on("end", function() {
       done();
@@ -329,6 +339,46 @@ function createDeflatedZeros(uncompressedSize, startOffset) {
     }
   };
   return stream;
+}
+
+function sliceDeflatedZeros(totalUncompressedSize, start, end) {
+  // Represents a sequence of DEFLATE "uncompressed blocks" storing zeros.
+  // https://www.ietf.org/rfc/rfc1951.txt
+
+  var blockSize = 0xffff + 5;
+  var blockStartIndex = Math.floor(start / blockSize);
+  var blockEndIndex = Math.floor(end / blockSize);
+  var lastBlockIndex = Math.floor(totalUncompressedSize / 0xffff);
+
+  var resultBlockSlices = [];
+  for (var i = blockStartIndex; i <= blockEndIndex; i++) {
+    var block;
+    if (i < lastBlockIndex) {
+      // not final block
+      var header = bufferFromArray([
+        0, // BFINAL=0, BTYPE=0
+        0xff, 0xff, // LEN
+        0x00, 0x00, // NLEN
+      ]);
+      block = Buffer.concat([header, justZeros]);
+    } else {
+      // last block
+      var header = bufferFromArray([
+        1, // BFINAL=1, BTYPE=0
+        0, 0, // filled in below
+        0, 0, // filled in below
+      ]);
+      var lastBlockLen = totalUncompressedSize - lastBlockIndex * 0xffff
+      header.writeUInt16LE(lastBlockLen, 1);
+      header.writeUInt16LE(0xffff & ~lastBlockLen, 3);
+      block = Buffer.concat([header, justZeros.slice(0, lastBlockLen)]);
+    }
+
+    // now respect the passed in bounds
+    var blockOffset = i * blockSize;
+    resultBlockSlices.push(block.slice(Math.max(0, start - blockOffset), end - blockOffset));
+  }
+  return Buffer.concat(resultBlockSlices);
 }
 
 function makeSegmentedReadFunction(segments) {
