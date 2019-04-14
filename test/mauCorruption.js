@@ -1,6 +1,7 @@
 var zlib = require("zlib");
 var Writable = require("stream").Writable;
 var Readable = require("stream").Readable;
+var BufferList = require("bl");
 
 // Node 10 deprecated new Buffer().
 var newBuffer;
@@ -27,37 +28,90 @@ if (typeof Buffer.from === "function") {
 }
 
 function cli() {
-  var uncompressedSized = 2 ** 32 + 2;
-  // test sparse gzip code
-  var fakeReadStream = createDeflatedZeros(uncompressedSized);
+  testSparseGzip(function() {
+    testStartOffset(function() {
+      console.log("done");
+    });
+  });
+}
+
+function testStartOffset(cb) {
+  var uncompressedSize = 0xffff * 3 + 1;
+  createDeflatedZeros(uncompressedSize, 0).pipe(BufferList(function(err, expectedCompleteBuffer) {
+    if (err) throw err;
+    // if we start in the middle, we should get a slice of the complete buffer
+    var started = 0;
+    var done = 0;
+    testTailBuffer(1, checkDone);
+    testTailBuffer(2, checkDone);
+    testTailBuffer(3, checkDone);
+    testTailBuffer(4, checkDone);
+    testTailBuffer(5, checkDone);
+    testTailBuffer(6, checkDone);
+    testTailBuffer(0xffff, checkDone);
+    testTailBuffer(0xffff + 11, checkDone);
+
+    function testTailBuffer(tailSize, cb) {
+      started++;
+      createDeflatedZeros(uncompressedSize, uncompressedSize - tailSize).pipe(BufferList(function(err, tailBuffer) {
+        if (!buffersEqual(expectedCompleteBuffer.slice(uncompressedSize - tailSize), tailBuffer)) throw new Error("wrong data");
+        console.log("tail size(" + tailSize + "): pass");
+        cb();
+      }));
+    }
+    function checkDone() {
+      // ugh. this would be nicer with await
+      done++;
+      if (done === started) cb();
+    }
+  }));
+}
+
+function testSparseGzip(cb) {
+  var uncompressedSize = 0xffff * 5 + 10;
+  var fakeReadStream = createDeflatedZeros(uncompressedSize, 0);
   var inflateFilter = zlib.createInflateRaw();
   var asserterStream = new Writable();
-
 
   var bytesSeen = 0;
   asserterStream._write = function(chunk, encoding, callback) {
     bytesSeen += chunk.length;
-    if (bytesSeen > uncompressedSized) throw new Error("too many bytes");
+    if (bytesSeen > uncompressedSize) throw new Error("too many bytes");
     if (!bufferIsAllZero(chunk)) throw new Error("expected to get all zeros");
     callback();
   };
   asserterStream._final = function(callback) {
-    if (bytesSeen < uncompressedSized) throw new Error("not enough bytes");
+    if (bytesSeen < uncompressedSize) throw new Error("not enough bytes");
     callback();
+    console.log("sparse gzip: pass");
+    cb();
   };
 
   fakeReadStream.pipe(inflateFilter).pipe(asserterStream);
 }
 
 var justZeros = newBuffer(0xffff, 0);
-function createDeflatedZeros(uncompressedSized) {
+function createDeflatedZeros(uncompressedSize, startOffset) {
   // Produces a stream of DEFLATE blocks of uncompressed zeros.
   // https://www.ietf.org/rfc/rfc1951.txt
-  var stream = new Readable();
   var servedBytes = 0;
+  while (startOffset >= 5 + 0xffff) {
+    // skip entire blocks
+    servedBytes += 0xffff;
+    startOffset -= 5 + 0xffff;
+  }
+
+  function sliceFirstBuffer(buffer) {
+    if (startOffset === 0) return buffer;
+    buffer = buffer.slice(startOffset);
+    startOffset = 0;
+    return buffer;
+  }
+
+  var stream = new Readable();
   stream._read = function() {
     while (true) {
-      var remainingBytes = uncompressedSized - servedBytes;
+      var remainingBytes = uncompressedSize - servedBytes;
       if (remainingBytes > 0xffff) {
         servedBytes += 0xffff;
         var header = bufferFromArray([
@@ -65,7 +119,7 @@ function createDeflatedZeros(uncompressedSized) {
           0xff, 0xff, // LEN
           0x00, 0x00, // NLEN
         ]);
-        if (!stream.push(Buffer.concat([header, justZeros]))) return;
+        if (!stream.push(sliceFirstBuffer(Buffer.concat([header, justZeros])))) return;
       } else {
         // last block
         servedBytes += remainingBytes;
@@ -76,7 +130,7 @@ function createDeflatedZeros(uncompressedSized) {
         ]);
         header.writeUInt16LE(remainingBytes, 1);
         header.writeUInt16LE(0xffff & ~remainingBytes, 3);
-        stream.push(Buffer.concat([header, justZeros.slice(0, remainingBytes)]));
+        stream.push(sliceFirstBuffer(Buffer.concat([header, justZeros.slice(0, remainingBytes)])));
         stream.push(null);
         return;
       }
@@ -88,6 +142,14 @@ function createDeflatedZeros(uncompressedSized) {
 function bufferIsAllZero(buffer) {
   for (var i = 0; i < buffer.length; i++) {
     if (buffer[i] !== 0) return false;
+  }
+  return true;
+}
+function buffersEqual(a, b) {
+  // Buffer.equals was added in v0.11.13, and we need to support v0.10
+  if (a.length !== b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
   }
   return true;
 }
