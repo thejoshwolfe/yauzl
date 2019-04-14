@@ -1,7 +1,9 @@
+var yauzl = require("../");
 var zlib = require("zlib");
 var Writable = require("stream").Writable;
 var Readable = require("stream").Readable;
 var BufferList = require("bl");
+var util = require("util");
 
 // Node 10 deprecated new Buffer().
 var newBuffer;
@@ -30,9 +32,23 @@ if (typeof Buffer.from === "function") {
 function cli() {
   testSparseGzip(function() {
     testStartOffset(function() {
-      console.log("done");
+      testBigFile(function() {
+        testCrowdedFile(function() {
+          console.log("done");
+        });
+      });
     });
   });
+}
+
+function testCrowdedFile(cb) {
+  // TODO
+  cb();
+}
+
+function testBigFile(cb) {
+  // TODO
+  cb();
 }
 
 function testStartOffset(cb) {
@@ -138,6 +154,38 @@ function createDeflatedZeros(uncompressedSize, startOffset) {
   };
   return stream;
 }
+
+// TODO: this class could probably be exported by yauzl proper.
+util.inherits(ReadBasedRandomAccessReader, yauzl.RandomAccessReader);
+function ReadBasedRandomAccessReader() {
+  yauzl.RandomAccessReader.call(this);
+}
+ReadBasedRandomAccessReader.prototype._readStreamForRange = function(start, end) {
+  var selfReader = this;
+  var stream = new Readable();
+  var bytesRead = 0;
+  stream._read = function(size) {
+    var selfStream = this;
+    pump();
+    function pump() {
+      var readStart = start + bytesRead;
+      var readSize = Math.min(size, end - readStart);
+      if (readSize <= 0) {
+        return selfStream.push(null);
+      }
+      var buffer = newBuffer(readSize, 0);
+      selfReader.read(buffer, 0, readSize, readStart, function(err) {
+        if (err) return selfStream.emit("error", err);
+        bytesRead += readSize;
+        if (selfStream.push(buffer)) pump();
+      });
+    }
+  };
+  return stream;
+};
+ReadBasedRandomAccessReader.prototype.read = function(buffer, offset, length, position, callback) {
+  throw new Error("not implemented");
+};
 
 function bufferIsAllZero(buffer) {
   for (var i = 0; i < buffer.length; i++) {
