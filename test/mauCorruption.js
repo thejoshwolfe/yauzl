@@ -57,17 +57,16 @@ function mauCorrupted32(number, label) {
 }
 
 function testCrowdedFile(done) {
-  var fileNameBuffer = bufferFromArray([
-    // File name
-    0x61, 0x61, 0x61, 0x2e, 0x74, 0x78, 0x74,
-  ]);
+  console.log("beginning crowded file test");
 
-  var fileNameSize = fileNameBuffer.length;
+  var fileNameSize = 0x8000;
+  var numberOfEntries = 0x20001;
+
+  var fileNameBuffer = newBuffer(fileNameSize, "a".charCodeAt(0));
   var bufFN = mauCorrupted16(fileNameSize, "N/A");
   var localFileBufferSize = 48 + fileNameSize;
   var centralDirectoryRecordSize = 46 + fileNameSize;
 
-  var numberOfEntries = 2;
   var centralDirectoryOffset = numberOfEntries * localFileBufferSize;
   var centralDirectorySize = numberOfEntries * centralDirectoryRecordSize;
 
@@ -207,8 +206,9 @@ function testCrowdedFile(done) {
 }
 
 function testBigFile(done) {
+  console.log("beginning big file test");
   // this is the minimum size to corrupt the uncompressed size
-  var gzipBlocks = 2; // 0x10002; // TODO: make this pass while i'm writing the other test
+  var gzipBlocks = 0x10002;
 
   var theBigCompressedSize = (0xffff + 5) * gzipBlocks;
   var theBigUncompressedSize = 0xffff * gzipBlocks;
@@ -498,8 +498,8 @@ function makeSegmentedReadFunction(segments) {
       } else if (segments[i].end !== cursor + segments[i].length) throw new Error("bad segment length: " + i);
     }
     cursor = segments[i].end;
-    console.log("segment[" + i + "]: 0x" + segments[i].start.toString(16) +
-      "..0x" + segments[i].end.toString(16) + " // " + segments[i].label);
+    //console.log("segment[" + i + "]: 0x" + segments[i].start.toString(16) +
+    //  "..0x" + segments[i].end.toString(16) + " // " + segments[i].label);
   }
 
   return function read(buffer, offset, length, position, callback) {
