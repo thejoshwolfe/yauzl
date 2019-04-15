@@ -41,12 +41,30 @@ function cli() {
   });
 }
 
+function mauCorrupted32(number) {
+  var buffer = newBuffer(4, 0);
+  buffer.writeUInt32LE((number & 0xffffffff) >>> 0, 0);
+  return buffer;
+}
+
 function testCrowdedFile(done) {
   // TODO
   done();
 }
 
 function testBigFile(done) {
+  var gzipBlocks = 1000;
+  var theBigCompressedSize = (0xffff + 5) * gzipBlocks;
+  var theBigUncompressedSize = 0xffff * gzipBlocks;
+  var localFileHeader2Offset = 0x68 + theBigCompressedSize;
+  var eocdrOffset = 0x9d + theBigCompressedSize;
+
+  // buffer representations of the above in the mau-corrupted format
+  var mauCS = mauCorrupted32(theBigCompressedSize);
+  var mauUS = mauCorrupted32(theBigUncompressedSize);
+  var mau2O = mauCorrupted32(localFileHeader2Offset);
+  var mauEO = mauCorrupted32(eocdrOffset);
+
   var segments = [
     {label: "unimportant stuff", buffer: bufferFromArray([
       // Local File Header (#0)
@@ -92,20 +110,20 @@ function testBigFile(done) {
 
     ])},
 
-    {label: "the big file contents", length: 0x20008, slice: function(start, end) {
-      // File Contents TODO: replace with large data
+    // File Contents
+    {label: "the big file contents", length: theBigCompressedSize, slice: function(start, end) {
       //console.log("slice(0x" + start.toString(16) + "..0x" + end.toString(16) + ")");
       var localStart = start - this.start;
       var localEnd = end - this.start;
-      return sliceDeflatedZeros(0x1fffe, localStart, localEnd);
+      return sliceDeflatedZeros(theBigUncompressedSize, localStart, localEnd);
     }},
 
     {label: "unimporant stuff", buffer: bufferFromArray([
       // Optional Data Descriptor
       0x50, 0x4b, 0x07, 0x08, // optional data descriptor signature
       0x20, 0x30, 0x3a, 0x36, // crc-32
-      0x08, 0x00, 0x00, 0x00, // compressed size TODO
-      0x06, 0x00, 0x00, 0x00, // uncompressed size TODO
+      mauCS[0], mauCS[1], mauCS[2], mauCS[3], // compressed size
+      mauUS[0], mauUS[1], mauUS[2], mauUS[3], // uncompressed size
     ])},
 
     {label: "local file header #2", buffer: bufferFromArray([
@@ -166,8 +184,8 @@ function testBigFile(done) {
       0x26, 0x83,             // File last modification time
       0x8e, 0x4e,             // File last modification date
       0x20, 0x30, 0x3a, 0x36, // CRC-32
-      0x08, 0x00, 0x02, 0x00, // Compressed size TODO
-      0xfe, 0xff, 0x01, 0x00, // Uncompressed size TODO
+      mauCS[0], mauCS[1], mauCS[2], mauCS[3], // Compressed size
+      mauUS[0], mauUS[1], mauUS[2], mauUS[3], // Uncompressed size
       0x05, 0x00,             // File name length (n)
       0x00, 0x00,             // Extra field length (m)
       0x00, 0x00,             // File comment length (k)
@@ -195,7 +213,7 @@ function testBigFile(done) {
       0x00, 0x00,             // Disk number where file starts
       0x00, 0x00,             // Internal file attributes
       0x00, 0x00, 0xb4, 0x81, // External file attributes
-      0x70, 0x00, 0x02, 0x00, // Relative offset of local file header TODO
+      mau2O[0], mau2O[1], mau2O[2], mau2O[3], // Relative offset of local file header
       // File name
       0x63, 0x2e, 0x74, 0x78, 0x74,
     ])},
@@ -208,7 +226,7 @@ function testBigFile(done) {
       0x03, 0x00,             // Number of central directory records on this disk
       0x03, 0x00,             // Total number of central directory records
       0x99, 0x00, 0x00, 0x00, // Size of central directory (bytes)
-      0xa5, 0x00, 0x02, 0x00, // Offset of start of central directory, relative to start of archive TODO
+      mauEO[0], mauEO[1], mauEO[2], mauEO[3], // Offset of start of central directory, relative to start of archive
       0x00, 0x00,             // Comment Length
     ])},
   ];
@@ -233,7 +251,7 @@ function testBigFile(done) {
           }));
         } else {
           // should be a lot of zeros
-          var asserterStream = makeZeroAsserterSink(0xffff * 2);
+          var asserterStream = makeZeroAsserterSink(theBigUncompressedSize);
           asserterStream.on("finish", function() {
             console.log("entry data verified: " + entry.fileName);
             zipfile.readEntry();
