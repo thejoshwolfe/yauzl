@@ -42,8 +42,12 @@ function cli() {
 }
 
 function mauCorrupted32(number) {
+  var corruptedNumber = (number & 0xffffffff) >>> 0;
+  if (corruptedNumber !== number) {
+    console.log("corrupting 0x" + number.toString(16) + " to 0x" + corruptedNumber.toString(16));
+  }
   var buffer = newBuffer(4, 0);
-  buffer.writeUInt32LE((number & 0xffffffff) >>> 0, 0);
+  buffer.writeUInt32LE(corruptedNumber, 0);
   return buffer;
 }
 
@@ -53,7 +57,8 @@ function testCrowdedFile(done) {
 }
 
 function testBigFile(done) {
-  var gzipBlocks = 1000;
+  // this is the minimum size to corrupt the uncompressed size
+  var gzipBlocks = 0x10002;
   var theBigCompressedSize = (0xffff + 5) * gzipBlocks;
   var theBigUncompressedSize = 0xffff * gzipBlocks;
   var localFileHeader2Offset = 0x68 + theBigCompressedSize;
