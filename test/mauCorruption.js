@@ -57,11 +57,12 @@ function mauCorrupted32(number, label) {
 }
 
 function testCrowdedFile(done) {
-  var localEntrySize = 123; // TODO
-  var centralDirectoryRecordSize = 123; // TODO
+  var fileNameSize = 5;
+  var localFileBufferSize = 48 + fileNameSize;
+  var centralDirectoryRecordSize = 46 + fileNameSize;
 
-  var numberOfEntries = 0;
-  var centralDirectoryOffset = numberOfEntries * localEntrySize;
+  var numberOfEntries = 2;
+  var centralDirectoryOffset = numberOfEntries * localFileBufferSize;
   var centralDirectorySize = numberOfEntries * centralDirectoryRecordSize;
 
   var mauNE = mauCorrupted16(numberOfEntries, "number of entries");
@@ -70,13 +71,15 @@ function testCrowdedFile(done) {
 
   var segments = [
     {label: "local file stuff", length: centralDirectoryOffset, slice: function(start, end) {
-      // TODO
-      return newBuffer(0, 0);
+      var localStart = start - this.start;
+      var localEnd = end - this.start;
+      return sliceLocalFileStuff(localStart, localEnd);
     }},
 
     {label: "central directory", length: centralDirectorySize, slice: function(start, end) {
-      // TODO
-      return newBuffer(0, 0);
+      var localStart = start - this.start;
+      var localEnd = end - this.start;
+      return sliceCentralDirectoryStuff(localStart, localEnd);
     }},
 
     {label: "eocdr", buffer: bufferFromArray([
@@ -118,6 +121,86 @@ function testCrowdedFile(done) {
       done();
     });
   });
+
+  function sliceLocalFileStuff(start, end) {
+    // it's always the same
+    var localFileBuffer = bufferFromArray([
+      // Local File Header
+      0x50, 0x4b, 0x03, 0x04, // Local file header signature
+      0x14, 0x00,             // Version needed to extract (minimum)
+      0x08, 0x08,             // General purpose bit flag
+      0x08, 0x00,             // Compression method
+      0x5a, 0x7c,             // File last modification time
+      0x8e, 0x4e,             // File last modification date
+      0x00, 0x00, 0x00, 0x00, // CRC-32
+      0x00, 0x00, 0x00, 0x00, // Compressed size
+      0x00, 0x00, 0x00, 0x00, // Uncompressed size
+      0x05, 0x00,             // File name length (n)
+      0x00, 0x00,             // Extra field length (m)
+      // File Name
+      0x61, 0x2e, 0x74, 0x78, 0x74,
+      // File Contents
+      0x03, 0x00,
+      // Optional Data Descriptor
+      0x50, 0x4b, 0x07, 0x08, // optional data descriptor signature
+      0x00, 0x00, 0x00, 0x00, // crc-32
+      0x02, 0x00, 0x00, 0x00, // compressed size
+      0x00, 0x00, 0x00, 0x00, // uncompressed size
+    ]);
+    if (localFileBuffer.length !== localFileBufferSize) throw new Error("nope");
+
+    var startIndex = Math.floor(start / localFileBufferSize);
+    var endIndex = Math.floor(end / localFileBufferSize);
+    var resultBlockSlices = [];
+    for (var i = startIndex; i <= endIndex; i++) {
+      // respect the passed in bounds
+      var buf = localFileBuffer;
+      var bufOffset = i * localFileBufferSize;
+      buf = buf.slice(Math.max(0, start - bufOffset), end - bufOffset);
+      resultBlockSlices.push(buf);
+    }
+    return Buffer.concat(resultBlockSlices);
+  }
+
+  function sliceCentralDirectoryStuff(start, end) {
+    var startIndex = Math.floor(start / centralDirectoryRecordSize);
+    var endIndex = Math.floor(end / centralDirectoryRecordSize);
+    var resultBlockSlices = [];
+    for (var i = startIndex; i <= endIndex; i++) {
+      var localOffset = i * localFileBufferSize;
+      var mauLO = mauCorrupted32(localOffset, "relateive offset of local file header");
+
+      var buf = bufferFromArray([
+        // Central Directory Entry (#0)
+        0x50, 0x4b, 0x01, 0x02, // Central directory file header signature
+        0x3f, 0x03,             // Version made by
+        0x14, 0x00,             // Version needed to extract (minimum)
+        0x08, 0x08,             // General purpose bit flag
+        0x08, 0x00,             // Compression method
+        0x5a, 0x7c,             // File last modification time
+        0x8e, 0x4e,             // File last modification date
+        0x00, 0x00, 0x00, 0x00, // CRC-32
+        0x02, 0x00, 0x00, 0x00, // Compressed size
+        0x00, 0x00, 0x00, 0x00, // Uncompressed size
+        0x05, 0x00,             // File name length (n)
+        0x00, 0x00,             // Extra field length (m)
+        0x00, 0x00,             // File comment length (k)
+        0x00, 0x00,             // Disk number where file starts
+        0x00, 0x00,             // Internal file attributes
+        0x00, 0x00, 0xb4, 0x81, // External file attributes
+        mauLO[0], mauLO[1], mauLO[2], mauLO[3], // Relative offset of local file header
+        // File name
+        0x61, 0x2e, 0x74, 0x78, 0x74,
+      ]);
+      if (buf.length !== centralDirectoryRecordSize) throw new Error("nope");
+
+      // respect the passed in bounds
+      var bufOffset = i * centralDirectoryRecordSize;
+      buf = buf.slice(Math.max(0, start - bufOffset), end - bufOffset);
+      resultBlockSlices.push(buf);
+    }
+    return Buffer.concat(resultBlockSlices);
+  }
 }
 
 function testBigFile(done) {
