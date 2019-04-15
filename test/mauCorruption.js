@@ -1,3 +1,6 @@
+// "mau" stands for Mac Archive Utility.
+// See https://github.com/thejoshwolfe/yauzl/issues/69
+// See https://github.com/thejoshwolfe/yauzl/issues/92
 var yauzl = require("../");
 var zlib = require("zlib");
 var Writable = require("stream").Writable;
