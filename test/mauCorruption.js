@@ -223,13 +223,23 @@ function testBigFile(done) {
       if (err) throw err;
       zipfile.openReadStream(entry, function(err, readStream) {
         if (err) throw err;
-        readStream.pipe(BufferList(function(err, contents) {
-          if (err) throw err;
-          var expectedContents = newBuffer(entry.fileName === "b.txt" ? 0xffff * 2 : 0, 0);
-          if (!buffersEqual(expectedContents, contents)) throw new Error("wrong contents");
-          console.log("entry data verified: " + entry.fileName);
-          zipfile.readEntry();
-        }));
+        if (entry.fileName !== "b.txt") {
+          // should be empty
+          readStream.pipe(BufferList(function(err, contents) {
+            if (err) throw err;
+            if (contents.length !== 0) throw new Error("expected empty contents");
+            console.log("entry data verified: " + entry.fileName);
+            zipfile.readEntry();
+          }));
+        } else {
+          // should be a lot of zeros
+          var asserterStream = makeZeroAsserterSink(0xffff * 2);
+          asserterStream.on("finish", function() {
+            console.log("entry data verified: " + entry.fileName);
+            zipfile.readEntry();
+          });
+          readStream.pipe(asserterStream);
+        }
       });
     });
     zipfile.on("end", function() {
@@ -274,23 +284,30 @@ function testSparseGzip(cb) {
   var uncompressedSize = 0xffff * 5 + 10;
   var fakeReadStream = createDeflatedZeros(uncompressedSize, 0);
   var inflateFilter = zlib.createInflateRaw();
+  var asserterStream = makeZeroAsserterSink(uncompressedSize);
+  asserterStream.on("finish", function() {
+    console.log("sparse gzip: pass");
+    cb();
+  });
+
+  fakeReadStream.pipe(inflateFilter).pipe(asserterStream);
+}
+
+function makeZeroAsserterSink(expectedSize) {
   var asserterStream = new Writable();
 
   var bytesSeen = 0;
   asserterStream._write = function(chunk, encoding, callback) {
     bytesSeen += chunk.length;
-    if (bytesSeen > uncompressedSize) throw new Error("too many bytes");
+    if (bytesSeen > expectedSize) throw new Error("too many bytes");
     if (!bufferIsAllZero(chunk)) throw new Error("expected to get all zeros");
     callback();
   };
   asserterStream._final = function(callback) {
-    if (bytesSeen < uncompressedSize) throw new Error("not enough bytes");
+    if (bytesSeen < expectedSize) throw new Error("not enough bytes");
     callback();
-    console.log("sparse gzip: pass");
-    cb();
   };
-
-  fakeReadStream.pipe(inflateFilter).pipe(asserterStream);
+  return asserterStream;
 }
 
 var justZeros = newBuffer(0xffff, 0);
