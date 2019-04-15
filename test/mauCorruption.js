@@ -30,13 +30,9 @@ if (typeof Buffer.from === "function") {
 }
 
 function cli() {
-  testSparseGzip(function() {
-    testStartOffset(function() {
-      testBigFile(function() {
-        testCrowdedFile(function() {
-          console.log("done");
-        });
-      });
+  testCrowdedFile(function() {
+    testBigFile(function() {
+      console.log("done");
     });
   });
 }
@@ -59,6 +55,7 @@ function testCrowdedFile(done) {
 function testBigFile(done) {
   // this is the minimum size to corrupt the uncompressed size
   var gzipBlocks = 0x10002;
+
   var theBigCompressedSize = (0xffff + 5) * gzipBlocks;
   var theBigUncompressedSize = 0xffff * gzipBlocks;
   var localFileHeader2Offset = 0x68 + theBigCompressedSize;
@@ -271,51 +268,6 @@ function testBigFile(done) {
   });
 }
 
-function testStartOffset(cb) {
-  var uncompressedSize = 0xffff * 3 + 1;
-  createDeflatedZeros(uncompressedSize, 0).pipe(BufferList(function(err, expectedCompleteBuffer) {
-    if (err) throw err;
-    // if we start in the middle, we should get a slice of the complete buffer
-    var started = 0;
-    var done = 0;
-    testTailBuffer(1, checkDone);
-    testTailBuffer(2, checkDone);
-    testTailBuffer(3, checkDone);
-    testTailBuffer(4, checkDone);
-    testTailBuffer(5, checkDone);
-    testTailBuffer(6, checkDone);
-    testTailBuffer(0xffff, checkDone);
-    testTailBuffer(0xffff + 11, checkDone);
-
-    function testTailBuffer(tailSize, cb) {
-      started++;
-      createDeflatedZeros(uncompressedSize, uncompressedSize - tailSize).pipe(BufferList(function(err, tailBuffer) {
-        if (!buffersEqual(expectedCompleteBuffer.slice(uncompressedSize - tailSize), tailBuffer)) throw new Error("wrong data");
-        console.log("tail size(" + tailSize + "): pass");
-        cb();
-      }));
-    }
-    function checkDone() {
-      // ugh. this would be nicer with await
-      done++;
-      if (done === started) cb();
-    }
-  }));
-}
-
-function testSparseGzip(cb) {
-  var uncompressedSize = 0xffff * 5 + 10;
-  var fakeReadStream = createDeflatedZeros(uncompressedSize, 0);
-  var inflateFilter = zlib.createInflateRaw();
-  var asserterStream = makeZeroAsserterSink(uncompressedSize);
-  asserterStream.on("finish", function() {
-    console.log("sparse gzip: pass");
-    cb();
-  });
-
-  fakeReadStream.pipe(inflateFilter).pipe(asserterStream);
-}
-
 function makeZeroAsserterSink(expectedSize) {
   var asserterStream = new Writable();
 
@@ -334,54 +286,6 @@ function makeZeroAsserterSink(expectedSize) {
 }
 
 var justZeros = newBuffer(0xffff, 0);
-function createDeflatedZeros(uncompressedSize, startOffset) {
-  // Produces a stream of DEFLATE blocks of uncompressed zeros.
-  // https://www.ietf.org/rfc/rfc1951.txt
-  var servedBytes = 0;
-  while (startOffset >= 5 + 0xffff) {
-    // skip entire blocks
-    servedBytes += 0xffff;
-    startOffset -= 5 + 0xffff;
-  }
-
-  function sliceFirstBuffer(buffer) {
-    if (startOffset === 0) return buffer;
-    buffer = buffer.slice(startOffset);
-    startOffset = 0;
-    return buffer;
-  }
-
-  var stream = new Readable();
-  stream._read = function() {
-    while (true) {
-      var remainingBytes = uncompressedSize - servedBytes;
-      if (remainingBytes > 0xffff) {
-        servedBytes += 0xffff;
-        var header = bufferFromArray([
-          0, // BFINAL=0, BTYPE=0
-          0xff, 0xff, // LEN
-          0x00, 0x00, // NLEN
-        ]);
-        if (!stream.push(sliceFirstBuffer(Buffer.concat([header, justZeros])))) return;
-      } else {
-        // last block
-        servedBytes += remainingBytes;
-        var header = bufferFromArray([
-          1, // BFINAL=1, BTYPE=0
-          0, 0, // filled in below
-          0, 0, // filled in below
-        ]);
-        header.writeUInt16LE(remainingBytes, 1);
-        header.writeUInt16LE(0xffff & ~remainingBytes, 3);
-        stream.push(sliceFirstBuffer(Buffer.concat([header, justZeros.slice(0, remainingBytes)])));
-        stream.push(null);
-        return;
-      }
-    }
-  };
-  return stream;
-}
-
 function sliceDeflatedZeros(totalUncompressedSize, start, end) {
   // Represents a sequence of DEFLATE "uncompressed blocks" storing zeros.
   // https://www.ietf.org/rfc/rfc1951.txt
@@ -440,8 +344,8 @@ function makeSegmentedReadFunction(segments) {
       } else if (segments[i].end !== cursor + segments[i].length) throw new Error("bad segment length: " + i);
     }
     cursor = segments[i].end;
-    console.log("segment[" + i + "]: 0x" + segments[i].start.toString(16) +
-      "..0x" + segments[i].end.toString(16) + " // " + segments[i].label);
+    //console.log("segment[" + i + "]: 0x" + segments[i].start.toString(16) +
+    //  "..0x" + segments[i].end.toString(16) + " // " + segments[i].label);
   }
 
   return function read(buffer, offset, length, position, callback) {
