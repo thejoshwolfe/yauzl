@@ -376,31 +376,30 @@ ZipFile.prototype._readEntry = function() {
 
       // check for Info-ZIP Unicode Path Extra Field (0x7075)
       // see https://github.com/thejoshwolfe/yauzl/issues/33
-      if (self.decodeStrings) {
-        for (var i = 0; i < entry.extraFields.length; i++) {
-          var extraField = entry.extraFields[i];
-          if (extraField.id === 0x7075) {
-            if (extraField.data.length < 6) {
-              // too short to be meaningful
-              continue;
-            }
-            // Version       1 byte      version of this extra field, currently 1
-            if (extraField.data.readUInt8(0) !== 1) {
-              // > Changes may not be backward compatible so this extra
-              // > field should not be used if the version is not recognized.
-              continue;
-            }
-            // NameCRC32     4 bytes     File Name Field CRC32 Checksum
-            var oldNameCrc32 = extraField.data.readUInt32LE(1);
-            if (crc32.unsigned(buffer.slice(0, entry.fileNameLength)) !== oldNameCrc32) {
-              // > If the CRC check fails, this UTF-8 Path Extra Field should be
-              // > ignored and the File Name field in the header should be used instead.
-              continue;
-            }
-            // UnicodeName   Variable    UTF-8 version of the entry File Name
-            entry.fileName = decodeBuffer(extraField.data, 5, extraField.data.length, true);
-            break;
+      for (var i = 0; i < entry.extraFields.length; i++) {
+        var extraField = entry.extraFields[i];
+        if (extraField.id === 0x7075) {
+          if (extraField.data.length < 6) {
+            // too short to be meaningful
+            continue;
           }
+          // Version       1 byte      version of this extra field, currently 1
+          if (extraField.data.readUInt8(0) !== 1) {
+            // > Changes may not be backward compatible so this extra
+            // > field should not be used if the version is not recognized.
+            continue;
+          }
+          // NameCRC32     4 bytes     File Name Field CRC32 Checksum
+          var oldNameCrc32 = extraField.data.readUInt32LE(1);
+          if (crc32.unsigned(buffer.slice(0, entry.fileNameLength)) !== oldNameCrc32) {
+            // > If the CRC check fails, this UTF-8 Path Extra Field should be
+            // > ignored and the File Name field in the header should be used instead.
+            continue;
+          }
+          // UnicodeName   Variable    UTF-8 version of the entry File Name
+          entry.fileName = self.decodeStrings ? decodeBuffer(extraField.data, 5, extraField.data.length, true)
+                                              : extraField.data.slice(5, extraField.data.length);
+          break;
         }
       }
 
