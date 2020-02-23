@@ -26,8 +26,8 @@
   },
   "homepage": "https://github.com/thejoshwolfe/yauzl",
   "dependencies": {
-    "fd-slicer": "nalhabash/node-fd-slicer#master",
-    "buffer-crc32": "~0.2.3"
+    "buffer-crc32": "~0.2.3",
+    "fd-slicer2": "^1.2.0"
   },
   "devDependencies": {
     "bl": "~1.0.0",
