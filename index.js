@@ -1,6 +1,6 @@
 var fs = require("fs");
 var zlib = require("zlib");
-var fd_slicer = require("fd-slicer");
+var fd_slicer = require("fd-slicer2");
 var crc32 = require("buffer-crc32");
 var util = require("util");
 var EventEmitter = require("events").EventEmitter;
