@@ -452,7 +452,7 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
       }
     }
     if (options.decompress != null) {
-      if (!entry.isCompressed()) {
+      if (entry.compressionMethod === 0) {
         throw new Error("options.decompress can only be specified for compressed entries");
       }
       if (!(options.decompress === false || options.decompress === true)) {
@@ -520,8 +520,10 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
       } else if (entry.compressionMethod === 8) {
         // 8 - The file is Deflated
         decompress = options.decompress != null ? options.decompress : true;
-      } else {
+      } else if (options.decompress == null || options.decompress) {
         return callback(new Error("unsupported compression method: " + entry.compressionMethod));
+      } else {
+        decompress = false;
       }
       var fileDataStart = localFileHeaderEnd;
       var fileDataEnd = fileDataStart + entry.compressedSize;
