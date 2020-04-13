@@ -116,7 +116,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
       // 0 - End of central directory signature = 0x06054b50
       // 4 - Number of this disk
       var diskNumber = eocdrBuffer.readUInt16LE(4);
-      if (diskNumber !== 0) {
+      if (diskNumber !== 0 && diskNumber !== 0xffff) {
         return callback(new Error("multi-disk zip files are not supported: found disk number: " + diskNumber));
       }
       // 6 - Disk where central directory starts
@@ -171,6 +171,10 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
           // 12 - version made by                                             2 bytes
           // 14 - version needed to extract                                   2 bytes
           // 16 - number of this disk                                         4 bytes
+          var diskNumber = zip64EocdrBuffer.readUInt32LE(16);
+          if (diskNumber !== 0) {
+            return callback(new Error("multi-disk zip files are not supported: found disk number: " + diskNumber));
+          }
           // 20 - number of the disk with the start of the central directory  4 bytes
           // 24 - total number of entries in the central directory on this disk         8 bytes
           // 32 - total number of entries in the central directory            8 bytes
