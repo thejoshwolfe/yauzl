@@ -32,7 +32,7 @@ listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry
     {lazyEntries: true},
     {lazyEntries: true, decodeStrings: false},
   ];
-  if (/\/wrong-entry-sizes\//.test(zipfilePath)) {
+  if (/[\/\\]wrong-entry-sizes[\/\\]/.test(zipfilePath)) {
     optionConfigurations.forEach(function(options) {
       options.validateEntrySizes = false;
     });
