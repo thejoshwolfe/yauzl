@@ -542,6 +542,7 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
       if (decompress) {
         var destroyed = false;
         var inflateFilter = zlib.createInflateRaw();
+        endpointStream = inflateFilter;
         readStream.on("error", function(err) {
           // setImmediate here because errors can be emitted during the first call to pipe()
           setImmediate(function() {
@@ -559,18 +560,7 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
             });
           });
           inflateFilter.pipe(endpointStream);
-        } else {
-          // the zlib filter is the client-visible stream
-          endpointStream = inflateFilter;
         }
-        // this is part of yauzl's API, so implement this function on the client-visible stream
-        endpointStream.destroy = function() {
-          destroyed = true;
-          if (inflateFilter !== endpointStream) inflateFilter.unpipe(endpointStream);
-          readStream.unpipe(inflateFilter);
-          // TODO: the inflateFilter may cause a memory leak. see Issue #27.
-          readStream.destroy();
-        };
       }
       callback(null, endpointStream);
     } finally {
@@ -695,11 +685,6 @@ RandomAccessReader.prototype.createReadStream = function(options) {
       if (!destroyed) refUnrefFilter.emit("error", err);
     });
   });
-  refUnrefFilter.destroy = function() {
-    stream.unpipe(refUnrefFilter);
-    refUnrefFilter.unref();
-    stream.destroy();
-  };
 
   var byteCounter = new AssertByteCountStream(end - start);
   refUnrefFilter.on("error", function(err) {
@@ -707,11 +692,6 @@ RandomAccessReader.prototype.createReadStream = function(options) {
       if (!destroyed) byteCounter.emit("error", err);
     });
   });
-  byteCounter.destroy = function() {
-    destroyed = true;
-    refUnrefFilter.unpipe(byteCounter);
-    refUnrefFilter.destroy();
-  };
 
   return stream.pipe(refUnrefFilter).pipe(byteCounter);
 };
@@ -747,6 +727,12 @@ function RefUnrefFilter(context) {
 RefUnrefFilter.prototype._flush = function(cb) {
   this.unref();
   cb();
+};
+RefUnrefFilter.prototype._destroy = function(err, cb) {
+  PassThrough.prototype._destroy.call(this, err, (err2) => {
+    this.unref();
+    cb(err2);
+  });
 };
 RefUnrefFilter.prototype.unref = function(cb) {
   if (this.unreffedYet) return;
