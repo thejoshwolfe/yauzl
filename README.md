@@ -526,7 +526,7 @@ By using General Purpose Bit 3 (and compression method 0),
 it's possible to create arbitrarily ambiguous .zip files that
 distract parsers with file contents that contain apparently valid .zip file metadata.
 
-### Limitted ZIP64 Support
+### Limited ZIP64 Support
 
 For ZIP64, only zip files smaller than `8PiB` are supported,
 not the full `16EiB` range that a 64-bit integer should be able to index.
