@@ -601,7 +601,7 @@ function dosDateTimeToDate(date, time) {
   var minute = time >> 5 & 0x3f; // 0-59
   var hour = time >> 11 & 0x1f; // 0-23
 
-  return new Date(year, month, day, hour, minute, second, millisecond);
+  return new Date(Date.UTC(year, month, day, hour, minute, second, millisecond));
 }
 
 function validateFileName(fileName) {
