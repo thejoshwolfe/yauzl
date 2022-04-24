@@ -564,12 +564,13 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
           endpointStream = inflateFilter;
         }
         // this is part of yauzl's API, so implement this function on the client-visible stream
-        endpointStream.destroy = function() {
+        endpointStream._destroy = function(err, cb) {
           destroyed = true;
           if (inflateFilter !== endpointStream) inflateFilter.unpipe(endpointStream);
           readStream.unpipe(inflateFilter);
           // TODO: the inflateFilter may cause a memory leak. see Issue #27.
           readStream.destroy();
+          cb(err);
         };
       }
       callback(null, endpointStream);
