@@ -288,6 +288,8 @@ ZipFile.prototype._readEntry = function() {
     // 42 - Relative offset of local file header
     entry.relativeOffsetOfLocalHeader = buffer.readUInt32LE(42);
 
+    entry.relativeOffsetOfFileData = null;
+
     if (entry.generalPurposeBitFlag & 0x40) return emitErrorAndAutoClose(self, new Error("strong encryption is not supported"));
 
     self.readEntryCursor += 46;
@@ -513,6 +515,8 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
       // 30 - File name
       // 30+n - Extra field
       var localFileHeaderEnd = entry.relativeOffsetOfLocalHeader + buffer.length + fileNameLength + extraFieldLength;
+      entry.relativeOffsetOfFileData = localFileHeaderEnd;
+
       var decompress;
       if (entry.compressionMethod === 0) {
         // 0 - The file is stored (no compression)
