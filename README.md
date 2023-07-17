@@ -32,7 +32,7 @@ yauzl.open("path/to/file.zip", {lazyEntries: true}, function(err, zipfile) {
   zipfile.on("entry", function(entry) {
     if (/\/$/.test(entry.fileName)) {
       // Directory file names end with '/'.
-      // Note that entires for directories themselves are optional.
+      // Note that entries for directories themselves are optional.
       // An entry's fileName implicitly requires its parent directories to exist.
       zipfile.readEntry();
     } else {
