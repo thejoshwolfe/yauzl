@@ -6,7 +6,7 @@
   "scripts": {
     "test": "node test/test.js",
     "test-cov": "istanbul cover test/test.js",
-    "test-travis": "istanbul cover --report lcovonly test/test.js"
+    "test-ci": "istanbul cover --report lcovonly test/test.js"
   },
   "repository": {
     "type": "git",

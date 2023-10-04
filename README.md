@@ -1,6 +1,6 @@
 # yauzl
 
-[![Build Status](https://travis-ci.org/thejoshwolfe/yauzl.svg?branch=master)](https://travis-ci.org/thejoshwolfe/yauzl)
+[![Build Status](https://github.com/thejoshwolfe/yauzl/actions/workflows/build.yml/badge.svg)](https://github.com/thejoshwolfe/yauzl/actions/workflows/build.yml)
 [![Coverage Status](https://img.shields.io/coveralls/thejoshwolfe/yauzl.svg)](https://coveralls.io/r/thejoshwolfe/yauzl)
 
 yet another unzip library for node. For zipping, see
