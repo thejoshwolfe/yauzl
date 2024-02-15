@@ -284,7 +284,8 @@ It is possible to destroy the `readStream` before it has piped all of its data.
 To do this, call `readStream.destroy()`.
 You must `unpipe()` the `readStream` from any destination before calling `readStream.destroy()`.
 If this zipfile was created using `fromRandomAccessReader()`, the `RandomAccessReader` implementation
-must provide readable streams that implement a `.destroy()` method (see `randomAccessReader._readStreamForRange()`)
+must provide readable streams that implement a `._destroy()` method according to
+https://nodejs.org/api/stream.html#writable_destroyerr-callback (see `randomAccessReader._readStreamForRange()`)
 in order for calls to `readStream.destroy()` to work in this context.
 
 #### close()
@@ -448,11 +449,11 @@ Any errors emitted on the readable stream will be handled and re-emitted on the 
 (returned from `zipfile.openReadStream()`) or provided as the `err` argument to the appropriate callback
 (for example, for `fromRandomAccessReader()`).
 
-The returned stream *must* implement a method `.destroy()`
-if you call `readStream.destroy()` on streams you get from `openReadStream()`.
-If you never call `readStream.destroy()`, then streams returned from this method do not need to implement a method `.destroy()`.
-`.destroy()` should abort any streaming that is in progress and clean up any associated resources.
-`.destroy()` will only be called after the stream has been `unpipe()`d from its destination.
+If you call `readStream.destroy()` on streams you get from `openReadStream()`,
+the returned stream *must* implement a method `._destroy()` according to https://nodejs.org/api/stream.html#writable_destroyerr-callback .
+If you never call `readStream.destroy()`, then streams returned from this method do not need to implement a method `._destroy()`.
+`._destroy()` should abort any streaming that is in progress and clean up any associated resources.
+`._destroy()` will only be called after the stream has been `unpipe()`d from its destination.
 
 Note that the stream returned from this method might not be the same object that is provided by `openReadStream()`.
 The stream returned from this method might be `pipe()`d through one or more filter streams (for example, a zlib inflate stream).

@@ -564,13 +564,13 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
           endpointStream = inflateFilter;
         }
         // this is part of yauzl's API, so implement this function on the client-visible stream
-        endpointStream.destroy = function() {
+        installDestroyFn(endpointStream, function() {
           destroyed = true;
           if (inflateFilter !== endpointStream) inflateFilter.unpipe(endpointStream);
           readStream.unpipe(inflateFilter);
           // TODO: the inflateFilter may cause a memory leak. see Issue #27.
           readStream.destroy();
-        };
+        });
       }
       callback(null, endpointStream);
     } finally {
@@ -695,11 +695,11 @@ RandomAccessReader.prototype.createReadStream = function(options) {
       if (!destroyed) refUnrefFilter.emit("error", err);
     });
   });
-  refUnrefFilter.destroy = function() {
+  installDestroyFn(refUnrefFilter, function() {
     stream.unpipe(refUnrefFilter);
     refUnrefFilter.unref();
     stream.destroy();
-  };
+  });
 
   var byteCounter = new AssertByteCountStream(end - start);
   refUnrefFilter.on("error", function(err) {
@@ -707,11 +707,11 @@ RandomAccessReader.prototype.createReadStream = function(options) {
       if (!destroyed) byteCounter.emit("error", err);
     });
   });
-  byteCounter.destroy = function() {
+  installDestroyFn(byteCounter, function() {
     destroyed = true;
     refUnrefFilter.unpipe(byteCounter);
     refUnrefFilter.destroy();
-  };
+  });
 
   return stream.pipe(refUnrefFilter).pipe(byteCounter);
 };
@@ -789,6 +789,20 @@ if (typeof Buffer.allocUnsafe === "function") {
   newBuffer = function(len) {
     return new Buffer(len);
   };
+}
+
+// Node 8 introduced a proper destroy() implementation on writable streams.
+function installDestroyFn(stream, fn) {
+  if (typeof stream.destroy === "function") {
+    // New API.
+    stream._destroy = function(err, cb) {
+      fn();
+      if (cb != null) cb(err);
+    };
+  } else {
+    // Old API.
+    stream.destroy = fn;
+  }
 }
 
 function defaultCallback(err) {
