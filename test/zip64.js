@@ -88,7 +88,7 @@ function newLargeBinContentsProducer() {
         return;
       }
       var bufferSize = Math.min(0x10000, largeBinLength - byteCount);
-      var buffer = new Buffer(bufferSize);
+      var buffer = Buffer.allocUnsafe(bufferSize);
       for (var i = 0; i < bufferSize; i += 4) {
         var n = ((prev0 + prev1) & 0xffffffff) >>> 0;
         prev0 = prev1;
@@ -107,7 +107,7 @@ function newLargeBinContentsProducer() {
 // this is just some bytes so we can identify it.
 var prefixLength = 0x100;
 function getPrefixOfStream(stream, cb) {
-  var prefixBuffer = new Buffer(prefixLength);
+  var prefixBuffer = Buffer.allocUnsafe(prefixLength);
   var writer = new Writable();
   writer._write = function(chunk, encoding, callback) {
     chunk.copy(prefixBuffer, 0, 0, prefixLength);
@@ -142,7 +142,7 @@ function compressFile(inputPath, outputPath) {
   }
   function writeCompressedFile(largeBinContentsOffset) {
     var writeStream = fs.createWriteStream(outputPath);
-    var headerBuffer = new Buffer(4);
+    var headerBuffer = Buffer.allocUnsafe(4);
     headerBuffer.writeUInt32BE(largeBinContentsOffset, 0);
     writeStream.write(headerBuffer);
     var firstReader = fs.createReadStream(inputPath, {
@@ -246,7 +246,7 @@ function makeRandomAccessReader(cb) {
       } else if (thisIsTheFirstRead && start > largeBinContentsOffset && end === pretendSize) {
         // yauzl's first move is to cast a large net to try to find the EOCDR.
         // yauzl's only going to care about the end of this data, so fill in the gaps with dummy data.
-        var dummyTrash = new Buffer(largeBinContentsEnd - start);
+        var dummyTrash = Buffer.allocUnsafe(largeBinContentsEnd - start);
         result.append(dummyTrash);
         result.append(backendContents.slice(largeBinContentsOffset + 4));
       } else {

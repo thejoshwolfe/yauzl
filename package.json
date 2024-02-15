@@ -25,13 +25,13 @@
   "homepage": "https://github.com/thejoshwolfe/yauzl",
   "dependencies": {
     "buffer-crc32": "~0.2.3",
-    "fd-slicer": "~1.1.0"
-  },
-  "devDependencies": {
-    "bl": "^6.0.11",
     "pend": "~1.2.0"
   },
+  "devDependencies": {
+    "bl": "^6.0.11"
+  },
   "files": [
+    "fd-slicer.js",
     "index.js"
   ]
 }

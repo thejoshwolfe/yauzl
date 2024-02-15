@@ -136,7 +136,7 @@ function runTest(cb) {
 }
 
 function hexToBuffer(hexString) {
-  var buffer = new Buffer(hexString.length / 2);
+  var buffer = Buffer.allocUnsafe(hexString.length / 2);
   for (var i = 0; i < buffer.length; i++) {
     buffer[i] = parseInt(hexString.substr(i * 2, 2), 16);
   }
