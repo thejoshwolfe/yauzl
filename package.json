@@ -1,12 +1,10 @@
 {
   "name": "yauzl",
-  "version": "2.10.0",
+  "version": "3.0.0",
   "description": "yet another unzip library for node",
   "main": "index.js",
   "scripts": {
-    "test": "node test/test.js",
-    "test-cov": "istanbul cover test/test.js",
-    "test-travis": "istanbul cover --report lcovonly test/test.js"
+    "test": "node test/test.js"
   },
   "repository": {
     "type": "git",
@@ -31,7 +29,6 @@
   },
   "devDependencies": {
     "bl": "~1.0.0",
-    "istanbul": "~0.3.4",
     "pend": "~1.2.0"
   },
   "files": [
