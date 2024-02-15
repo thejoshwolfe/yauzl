@@ -24,11 +24,11 @@
   },
   "homepage": "https://github.com/thejoshwolfe/yauzl",
   "dependencies": {
-    "fd-slicer": "~1.1.0",
-    "buffer-crc32": "~0.2.3"
+    "buffer-crc32": "~0.2.3",
+    "fd-slicer": "~1.1.0"
   },
   "devDependencies": {
-    "bl": "~1.0.0",
+    "bl": "^6.0.11",
     "pend": "~1.2.0"
   },
   "files": [
