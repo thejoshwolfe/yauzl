@@ -347,9 +347,15 @@ pend.go(zip64.runTest);
 // openReadStream with range
 pend.go(rangeTest.runTest);
 
+var done = false;
 pend.wait(function() {
-  // if you don't see this, something never happened.
-  console.log("done");
+  console.log("all done");
+  done = true;
+});
+process.on("exit", function(code) {
+  if (code === 0 && !done) {
+    throw new Error("premature exit. probably means an event never got fired.");
+  }
 });
 
 
