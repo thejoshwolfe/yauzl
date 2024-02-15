@@ -489,6 +489,8 @@ Minor version updates to yauzl will not add any additional requirements to this 
 
 ## Limitations
 
+The automated tests for this project run on node versions 12 and up. Older versions of node are not supported.
+
 ### Files corrupted by the Mac Archive Utility are not my problem
 
 For a lengthy discussion, see [issue #69](https://github.com/thejoshwolfe/yauzl/issues/69).
@@ -612,6 +614,15 @@ but the zip file spec does not specify how it works.
 This library makes no attempt to interpret the Language Encoding Flag.
 
 ## Change History
+
+ * 3.0.0
+   * BREAKING CHANGE: implementations of [RandomAccessReader](#class-randomaccessreader) that implement a `destroy` method must instead implement `_destroy` in accordance with the node standard https://nodejs.org/api/stream.html#writable_destroyerr-callback (note the error and callback parameters). If you continue to override `destory` instead, some error handling may be subtly broken. Additionally, this is required for async iterators to work correctly in some versions of node. [issue #110](https://github.com/thejoshwolfe/yauzl/issues/110)
+   * BREAKING CHANGE: Drop support for node versions older than 12.
+   * Maintenance: Fix buffer deprecation warning by bundling `fd-slicer` with a 1-line change, rather than depending on it. [issue #114](https://github.com/thejoshwolfe/yauzl/issues/114)
+   * Maintenance: Upgrade `bl` dependency; add `package-lock.json`; drop deprecated istanbul dependency. This resolves all security warnings for this project. [pull #125](https://github.com/thejoshwolfe/yauzl/pull/125)
+   * Maintenance: Replace broken Travis CI with GitHub Actions. [pull #148](https://github.com/thejoshwolfe/yauzl/pull/148)
+   * Maintenance: Fixed a long-standing issue in the test suite where a premature exit would incorrectly signal success.
+   * Officially gave up on supporting Mac Archive Utility corruption in order to rescue my motivation for this project. [issue #69](https://github.com/thejoshwolfe/yauzl/issues/69)
 
  * 2.10.0
    * Added support for non-conformant zipfiles created by Microsoft, and added option `strictFileNames` to disable the workaround. [issue #66](https://github.com/thejoshwolfe/yauzl/issues/66), [issue #88](https://github.com/thejoshwolfe/yauzl/issues/88)
