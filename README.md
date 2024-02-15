@@ -488,6 +488,16 @@ Minor version updates to yauzl will not add any additional requirements to this 
 
 ## Limitations
 
+### Files corrupted by the Mac Archive Utility are not my problem
+
+For a lengthy discussion, see [issue #69](https://github.com/thejoshwolfe/yauzl/issues/69).
+In summary, the Mac Archive Utility is buggy when creating large zip files,
+and this library does not make any effort to work around the bugs.
+This library will attempt to interpret the zip file data at face value,
+which may result in errors, or even silently incomplete data.
+If this bothers you, that's good! Please complain to Apple. :)
+I have accepted that this library will simply not support that nonsense.
+
 ### No Streaming Unzip API
 
 Due to the design of the .zip file format, it's impossible to interpret a .zip file from start to finish
