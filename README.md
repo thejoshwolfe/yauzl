@@ -354,8 +354,8 @@ These fields are of type `Number`:
  * `versionNeededToExtract`
  * `generalPurposeBitFlag`
  * `compressionMethod`
- * `lastModFileTime` (MS-DOS format, see `getLastModDateTime`)
- * `lastModFileDate` (MS-DOS format, see `getLastModDateTime`)
+ * `lastModFileTime` (MS-DOS format, see [`getLastModDate()`](#getlastmoddate))
+ * `lastModFileDate` (MS-DOS format, see [`getLastModDate()`](#getlastmoddate))
  * `crc32`
  * `compressedSize`
  * `uncompressedSize`
@@ -413,7 +413,7 @@ yauzl creates an alias field named `comment` which is identical to `fileComment`
 
 #### getLastModDate()
 
-Effectively implemented as the following. See [dosDateTimeToDate](#dosdatetimetodatedate-time).
+Effectively implemented as the following. See [`dosDateTimeToDate()`](#dosdatetimetodatedate-time).
 
 ```js
 return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime);
