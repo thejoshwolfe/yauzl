@@ -149,8 +149,24 @@ See `open()` for the meaning of the options and callback.
 
 Converts MS-DOS `date` and `time` data into a JavaScript `Date` object.
 Each parameter is a `Number` treated as an unsigned 16-bit integer.
-Note that this format does not support timezones,
-so the returned object will use the local timezone.
+Note that this format does not support timezones.
+The returned `Date` object will be constructed using the local timezone.
+
+In order to interpret the parameters in UTC time instead of local time, you can convert with the following snippet:
+
+```js
+var timestampInterpretedAsLocal = dosDateTimeToDate(date, time); // or entry.getLastModDate();
+var timestampInterpretedAsUTCInstead = new Date(
+    timestampInterpretedAsLocal.getTime() -
+    timestampInterpretedAsLocal.getTimezoneOffset() * 60 * 1000
+);
+```
+
+Note that there is an ECMAScript proposal to add better timezone support to JavaScript called the `Temporal` API.
+Last I checked, it is at stage 3. https://github.com/tc39/proposal-temporal
+
+Once that new API is available and stable, better timezone handling should be possible here somehow.
+Feel free to open a feature request against this library when the time comes.
 
 ### validateFileName(fileName)
 
@@ -397,7 +413,7 @@ yauzl creates an alias field named `comment` which is identical to `fileComment`
 
 #### getLastModDate()
 
-Effectively implemented as:
+Effectively implemented as the following. See [dosDateTimeToDate](#dosdatetimetodatedate-time).
 
 ```js
 return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime);
