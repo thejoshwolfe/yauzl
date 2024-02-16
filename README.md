@@ -155,7 +155,7 @@ The returned `Date` object will be constructed using the local timezone.
 In order to interpret the parameters in UTC time instead of local time, you can convert with the following snippet:
 
 ```js
-var timestampInterpretedAsLocal = dosDateTimeToDate(date, time); // or entry.getLastModDate();
+var timestampInterpretedAsLocal = yauzl.dosDateTimeToDate(date, time); // or entry.getLastModDate()
 var timestampInterpretedAsUTCInstead = new Date(
     timestampInterpretedAsLocal.getTime() -
     timestampInterpretedAsLocal.getTimezoneOffset() * 60 * 1000
