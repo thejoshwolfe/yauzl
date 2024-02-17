@@ -487,71 +487,70 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
   if (entry.isEncrypted()) {
     if (options.decrypt !== false) return callback(new Error("entry is encrypted, and options.decrypt !== false"));
   }
+  var decompress;
+  if (entry.compressionMethod === 0) {
+    // 0 - The file is stored (no compression)
+    decompress = false;
+  } else if (entry.compressionMethod === 8) {
+    // 8 - The file is Deflated
+    decompress = options.decompress != null ? options.decompress : true;
+  } else {
+    return callback(new Error("unsupported compression method: " + entry.compressionMethod));
+  }
 
   self.readLocalFileHeader(entry, {minimal: true}, function(err, localFileHeader) {
     if (err) return callback(err);
-    var fileDataStart = localFileHeader.fileDataStart;
-    var fileDataEnd = fileDataStart + entry.compressedSize;
-
-    var decompress;
-    if (entry.compressionMethod === 0) {
-      // 0 - The file is stored (no compression)
-      decompress = false;
-    } else if (entry.compressionMethod === 8) {
-      // 8 - The file is Deflated
-      decompress = options.decompress != null ? options.decompress : true;
-    } else {
-      return callback(new Error("unsupported compression method: " + entry.compressionMethod));
-    }
-    if (entry.compressedSize !== 0) {
-      // bounds check now, because the read streams will probably not complain loud enough.
-      // since we're dealing with an unsigned offset plus an unsigned size,
-      // we only have 1 thing to check for.
-      if (fileDataEnd > self.fileSize) {
-        return callback(new Error("file data overflows file bounds: " +
-            fileDataStart + " + " + entry.compressedSize + " > " + self.fileSize));
-      }
-    }
-    var readStream = self.reader.createReadStream({
-      start: fileDataStart + relativeStart,
-      end: fileDataStart + relativeEnd,
-    });
-    var endpointStream = readStream;
-    if (decompress) {
-      var destroyed = false;
-      var inflateFilter = zlib.createInflateRaw();
-      readStream.on("error", function(err) {
-        // setImmediate here because errors can be emitted during the first call to pipe()
-        setImmediate(function() {
-          if (!destroyed) inflateFilter.emit("error", err);
-        });
-      });
-      readStream.pipe(inflateFilter);
-
-      if (self.validateEntrySizes) {
-        endpointStream = new AssertByteCountStream(entry.uncompressedSize);
-        inflateFilter.on("error", function(err) {
-          // forward zlib errors to the client-visible stream
-          setImmediate(function() {
-            if (!destroyed) endpointStream.emit("error", err);
-          });
-        });
-        inflateFilter.pipe(endpointStream);
-      } else {
-        // the zlib filter is the client-visible stream
-        endpointStream = inflateFilter;
-      }
-      // this is part of yauzl's API, so implement this function on the client-visible stream
-      installDestroyFn(endpointStream, function() {
-        destroyed = true;
-        if (inflateFilter !== endpointStream) inflateFilter.unpipe(endpointStream);
-        readStream.unpipe(inflateFilter);
-        // TODO: the inflateFilter may cause a memory leak. see Issue #27.
-        readStream.destroy();
-      });
-    }
-    callback(null, endpointStream);
+    self.openReadStreamLowLevel(
+      localFileHeader.fileDataStart, entry.compressedSize,
+      relativeStart, relativeEnd,
+      decompress, entry.uncompressedSize,
+      callback);
   });
+};
+
+ZipFile.prototype.openReadStreamLowLevel = function(fileDataStart, compressedSize, relativeStart, relativeEnd, decompress, uncompressedSize, callback) {
+  var self = this;
+
+  var fileDataEnd = fileDataStart + compressedSize;
+  var readStream = self.reader.createReadStream({
+    start: fileDataStart + relativeStart,
+    end: fileDataStart + relativeEnd,
+  });
+  var endpointStream = readStream;
+  if (decompress) {
+    var destroyed = false;
+    var inflateFilter = zlib.createInflateRaw();
+    readStream.on("error", function(err) {
+      // setImmediate here because errors can be emitted during the first call to pipe()
+      setImmediate(function() {
+        if (!destroyed) inflateFilter.emit("error", err);
+      });
+    });
+    readStream.pipe(inflateFilter);
+
+    if (self.validateEntrySizes) {
+      endpointStream = new AssertByteCountStream(uncompressedSize);
+      inflateFilter.on("error", function(err) {
+        // forward zlib errors to the client-visible stream
+        setImmediate(function() {
+          if (!destroyed) endpointStream.emit("error", err);
+        });
+      });
+      inflateFilter.pipe(endpointStream);
+    } else {
+      // the zlib filter is the client-visible stream
+      endpointStream = inflateFilter;
+    }
+    // this is part of yauzl's API, so implement this function on the client-visible stream
+    installDestroyFn(endpointStream, function() {
+      destroyed = true;
+      if (inflateFilter !== endpointStream) inflateFilter.unpipe(endpointStream);
+      readStream.unpipe(inflateFilter);
+      // TODO: the inflateFilter may cause a memory leak. see Issue #27.
+      readStream.destroy();
+    });
+  }
+  callback(null, endpointStream);
 };
 
 ZipFile.prototype.readLocalFileHeader = function(entry, options, callback) {
@@ -575,6 +574,12 @@ ZipFile.prototype.readLocalFileHeader = function(entry, options, callback) {
       var fileNameLength = buffer.readUInt16LE(26);
       var extraFieldLength = buffer.readUInt16LE(28);
       var fileDataStart = entry.relativeOffsetOfLocalHeader + 30 + fileNameLength + extraFieldLength;
+      // We now have enough information to do this bounds check.
+      if (fileDataStart + entry.compressedSize > self.fileSize) {
+        return callback(new Error("file data overflows file bounds: " +
+            fileDataStart + " + " + entry.compressedSize + " > " + self.fileSize));
+      }
+
       if (options.minimal) {
         return callback(null, {fileDataStart: fileDataStart});
       } else {
