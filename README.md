@@ -336,7 +336,7 @@ This is a low-level function available for advanced use cases. You probably want
 
 The intended use case for this function is calling `readEntry()` and `readLocalFileHeader()` with `{minimal: true}` first,
 and then opening the read stream at a later time, possibly after closing and reopening the entire zipfile,
-possible even in a different process.
+possibly even in a different process.
 The parameters are all integers and booleans, which are friendly to serialization.
 
 * `fileDataStart` - from `localFileHeader.fileDataStart`
@@ -344,14 +344,14 @@ The parameters are all integers and booleans, which are friendly to serializatio
 * `relativeStart` - the resolved value of `options.start` from `openReadStream()`. Must be a non-negative integer, not `null`. Typically `0` to start at the beginning of the data.
 * `relativeEnd` - the resolved value of `options.end` from `openReadStream()`. Must be a non-negative integer, not `null`. Typically `entry.compressedSize` to include all the data.
 * `decompress` - boolean indicating whether the data should be piped through a zlib inflate stream.
-* `uncompressedSize` - from `entry.uncompressedSize`. Only used when `validateEntrySizes` is `true`. If `validateEntrySizes` is `false`, this value is ignored, but must not be omitted from the arguments.
-* `callback` - receives `(err, readStream)`, the same as `openReadStream()`
+* `uncompressedSize` - from `entry.uncompressedSize`. Only used when `validateEntrySizes` is `true`. If `validateEntrySizes` is `false`, this value is ignored, but must still be present, not omitted, in the arguments; you have to give it some value, even if it's `null`.
+* `callback` - receives `(err, readStream)`, the same as for `openReadStream()`
 
 This low-level function does not read any metadata from the underlying storage before opening the read stream.
 This is both a performance feature and a safety hazard.
 None of the integer parameters are bounds checked.
-None of the validation from `openReadStream()` with respect to compression and encryption is done here.
-The bounds checks from `validateEntrySizes` are still done, because that requires processing the stream data.
+None of the validation from `openReadStream()` with respect to compression and encryption is done here either.
+Only the bounds checks from `validateEntrySizes` are done, because that is part of processing the stream data.
 
 #### close()
 
@@ -498,7 +498,7 @@ See `openReadStream()` for the implications of this value.
 
 ### Class: LocalFileHeader
 
-This is trivial class that has no methods and only the following properties.
+This is a trivial class that has no methods and only the following properties.
 The constructor is available to call, but it doesn't do anything.
 See `readLocalFileHeader()`.
 
@@ -522,7 +522,7 @@ Note that unlike `Class: Entry`, the `fileName` and `extraField` are completely 
 This notably lacks Unicode and ZIP64 handling as well as any kind of safety validation on the file name.
 
 Also note that if your object is missing some of these fields,
-you should read the docs on the `minimal` option in `readLocalFileHeader()`.
+make sure to read the docs on the `minimal` option in `readLocalFileHeader()`.
 
 ### Class: RandomAccessReader
 
