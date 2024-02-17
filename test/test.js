@@ -92,6 +92,16 @@ listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry
             var timestamp = entry.getLastModDate();
             if (timestamp < earliestTimestamp) throw new Error(messagePrefix + "timestamp too early: " + timestamp);
             if (timestamp > new Date()) throw new Error(messagePrefix + "timestamp in the future: " + timestamp);
+
+            // Do this asynchronously because it's not critical,
+            // and this way it might find race condition bugs with autoclose.
+            zipfile.readLocalFileHeader(entry, function(err, localFileHeader) {
+              // This is the one field unique to the local file header.
+              if (localFileHeader.versionNeededToExtract == null) throw new Error(messagePrefix + "local file header missing versionNeededToExtract field");
+              // This field is the most mechnically important field.
+              if (localFileHeader.fileDataStart == null) throw new Error(messagePrefix + "local file header missing fileDataStart field");
+            });
+
             var fileNameKey = fileName.replace(/\/$/, "");
             var expectedContents = expectedArchiveContents[fileNameKey];
             if (expectedContents == null) {
