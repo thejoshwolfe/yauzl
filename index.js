@@ -582,46 +582,46 @@ ZipFile.prototype.readLocalFileHeader = function(entry, options, callback) {
 
       if (options.minimal) {
         return callback(null, {fileDataStart: fileDataStart});
-      } else {
-        var localFileHeader = new LocalFileHeader();
-        localFileHeader.fileDataStart = fileDataStart;
-
-        // 4 - Version needed to extract (minimum)
-        localFileHeader.versionNeededToExtract = buffer.readUInt16LE(4);
-        // 6 - General purpose bit flag
-        localFileHeader.generalPurposeBitFlag = buffer.readUInt16LE(6);
-        // 8 - Compression method
-        localFileHeader.compressionMethod = buffer.readUInt16LE(8);
-        // 10 - File last modification time
-        localFileHeader.lastModFileTime = buffer.readUInt16LE(10);
-        // 12 - File last modification date
-        localFileHeader.lastModFileDate = buffer.readUInt16LE(12);
-        // 14 - CRC-32
-        localFileHeader.crc32 = buffer.readUInt32LE(14);
-        // 18 - Compressed size
-        localFileHeader.compressedSize = buffer.readUInt32LE(18);
-        // 22 - Uncompressed size
-        localFileHeader.uncompressedSize = buffer.readUInt32LE(22);
-        // 26 - File name length (n)
-        localFileHeader.fileNameLength = fileNameLength;
-        // 28 - Extra field length (m)
-        localFileHeader.extraFieldLength = extraFieldLength;
-        // 30 - File name
-        // 30+n - Extra field
-
-        buffer = newBuffer(fileNameLength + extraFieldLength);
-        self.reader.ref();
-        readAndAssertNoEof(self.reader, buffer, 0, buffer.length, entry.relativeOffsetOfLocalHeader + 30, function(err) {
-          try {
-            if (err) return callback(err);
-            localFileHeader.fileName = buffer.subarray(0, fileNameLength);
-            localFileHeader.extraField = buffer.subarray(fileNameLength);
-            return callback(null, localFileHeader);
-          } finally {
-            self.reader.unref();
-          }
-        });
       }
+
+      var localFileHeader = new LocalFileHeader();
+      localFileHeader.fileDataStart = fileDataStart;
+
+      // 4 - Version needed to extract (minimum)
+      localFileHeader.versionNeededToExtract = buffer.readUInt16LE(4);
+      // 6 - General purpose bit flag
+      localFileHeader.generalPurposeBitFlag = buffer.readUInt16LE(6);
+      // 8 - Compression method
+      localFileHeader.compressionMethod = buffer.readUInt16LE(8);
+      // 10 - File last modification time
+      localFileHeader.lastModFileTime = buffer.readUInt16LE(10);
+      // 12 - File last modification date
+      localFileHeader.lastModFileDate = buffer.readUInt16LE(12);
+      // 14 - CRC-32
+      localFileHeader.crc32 = buffer.readUInt32LE(14);
+      // 18 - Compressed size
+      localFileHeader.compressedSize = buffer.readUInt32LE(18);
+      // 22 - Uncompressed size
+      localFileHeader.uncompressedSize = buffer.readUInt32LE(22);
+      // 26 - File name length (n)
+      localFileHeader.fileNameLength = fileNameLength;
+      // 28 - Extra field length (m)
+      localFileHeader.extraFieldLength = extraFieldLength;
+      // 30 - File name
+      // 30+n - Extra field
+
+      buffer = newBuffer(fileNameLength + extraFieldLength);
+      self.reader.ref();
+      readAndAssertNoEof(self.reader, buffer, 0, buffer.length, entry.relativeOffsetOfLocalHeader + 30, function(err) {
+        try {
+          if (err) return callback(err);
+          localFileHeader.fileName = buffer.subarray(0, fileNameLength);
+          localFileHeader.extraField = buffer.subarray(fileNameLength);
+          return callback(null, localFileHeader);
+        } finally {
+          self.reader.unref();
+        }
+      });
     } finally {
       self.reader.unref();
     }
