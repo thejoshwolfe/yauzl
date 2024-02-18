@@ -168,6 +168,28 @@ Last I checked, it is at stage 3. https://github.com/tc39/proposal-temporal
 Once that new API is available and stable, better timezone handling should be possible here somehow.
 Feel free to open a feature request against this library when the time comes.
 
+### getFileNameLowLevel(generalPurposeBitFlag, fileNameBuffer, extraFields, strictFileNames)
+
+If you are setting `decodeStrings` to `false`, then this function can be used to decode the file name yourself.
+This function is effectively used internally by yauzl to populate the `entry.fileName` field when `decodeStrings` is `true`.
+
+WARNING: This method of getting the file name bypasses the security checks in [`validateFileName()`](#validatefilename-filename).
+You should call that function yourself to be sure to guard against malicious file paths.
+
+`generalPurposeBitFlag` can be found on an [`Entry`](#class-entry) or [`LocalFileHeader`](#class-localfileheader).
+Only General Purpose Bit 11 is used, and only when an Info-ZIP Unicode Path Extra Field cannot be found in `extraFields`.
+
+`fileNameBuffer` is a `Buffer` representing the file name field of the entry.
+This is `entry.fileNameRaw` or `localFileHeader.fileName`.
+
+`extraFields` is the parsed extra fields array from `entry.extraFields` or `parseExtraFields()`.
+
+`strictFileNames` is a boolean, the same as the option of the same name in `open()`.
+When `false`, backslash characters (`\`) will be replaced with forward slash characters (`/`).
+
+This function always returns a string, although it may not be a valid file name.
+See `validateFileName()`.
+
 ### validateFileName(fileName)
 
 Returns `null` or a `String` error message depending on the validity of `fileName`.
@@ -427,7 +449,16 @@ These fields are of type `Number`:
  * `externalFileAttributes`
  * `relativeOffsetOfLocalHeader`
 
+These fields are of type `Buffer`, and represent variable-length bytes before being processed:
+ * `fileNameRaw`
+ * `extraFieldRaw`
+ * `commentRaw`
+
 There are additional fields described below: `fileName`, `extraFields`, `comment`.
+These are the `*Raw` fields above after going through some processing, such as UTF-8 decoding.
+See their own sections below.
+(Note the inconsistency in pluralization of "field" vs "fields" in `extraField`, `extraFields`, and `extraFieldRaw`.
+Sorry about that.)
 
 The `new Entry()` constructor is available for clients to call, but it's usually not useful.
 The constructor takes no parameters and does nothing; no fields will exist.
@@ -729,6 +760,8 @@ This library makes no attempt to interpret the Language Encoding Flag.
  * 3.1.0
    * Added `readLocalFileHeader()` and `Class: LocalFileHeader`.
    * Added `openReadStreamLowLevel()`.
+   * Added `getFileNameLowLevel()` and `parseExtraFields()`.
+     Added fields to `Class: Entry`: `fileNameRaw`, `extraFieldRaw`, `commentRaw`.
    * Noted dropped support of node versions before 12 in the `"engines"` field of `package.json`.
  * 3.0.0
    * BREAKING CHANGE: implementations of [RandomAccessReader](#class-randomaccessreader) that implement a `destroy` method must instead implement `_destroy` in accordance with the node standard https://nodejs.org/api/stream.html#writable_destroyerr-callback (note the error and callback parameters). If you continue to override `destory` instead, some error handling may be subtly broken. Additionally, this is required for async iterators to work correctly in some versions of node. [issue #110](https://github.com/thejoshwolfe/yauzl/issues/110)
