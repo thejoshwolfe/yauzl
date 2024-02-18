@@ -763,6 +763,7 @@ This library makes no attempt to interpret the Language Encoding Flag.
      Added fields to `Class: Entry`: `fileNameRaw`, `extraFieldRaw`, `fileCommentRaw`.
    * Added `examples/compareCentralAndLocalHeaders.js` that demonstrate many of these low level APIs.
    * Noted dropped support of node versions before 12 in the `"engines"` field of `package.json`.
+   * Fixed a crash when calling `openReadStream()` with an explicitly `null` options parameter (as opposed to omitted).
  * 3.0.0
    * BREAKING CHANGE: implementations of [RandomAccessReader](#class-randomaccessreader) that implement a `destroy` method must instead implement `_destroy` in accordance with the node standard https://nodejs.org/api/stream.html#writable_destroyerr-callback (note the error and callback parameters). If you continue to override `destory` instead, some error handling may be subtly broken. Additionally, this is required for async iterators to work correctly in some versions of node. [issue #110](https://github.com/thejoshwolfe/yauzl/issues/110)
    * BREAKING CHANGE: Drop support for node versions older than 12.

@@ -402,6 +402,9 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
   var relativeEnd = entry.compressedSize;
   if (callback == null) {
     callback = options;
+    options = null;
+  }
+  if (options == null) {
     options = {};
   } else {
     // validate options that the caller has no excuse to get wrong
@@ -519,8 +522,9 @@ ZipFile.prototype.readLocalFileHeader = function(entry, options, callback) {
   var self = this;
   if (callback == null) {
     callback = options;
-    options = {};
+    options = null;
   }
+  if (options == null) options = {};
 
   self.reader.ref();
   var buffer = newBuffer(30);
@@ -754,6 +758,7 @@ RandomAccessReader.prototype.unref = function() {
   }
 };
 RandomAccessReader.prototype.createReadStream = function(options) {
+  if (options == null) options = {};
   var start = options.start;
   var end = options.end;
   if (start === end) {
