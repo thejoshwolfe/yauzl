@@ -96,7 +96,7 @@ listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry
             // Do this asynchronously because it's not critical,
             // and this way it might find race condition bugs with autoclose.
             zipfile.readLocalFileHeader(entry, function(err, localFileHeader) {
-              // This is the one field unique to the local file header.
+              // Just check one of non-minumal fields fields.
               if (localFileHeader.versionNeededToExtract == null) throw new Error(messagePrefix + "local file header missing versionNeededToExtract field");
               // This field is the most mechnically important field.
               if (localFileHeader.fileDataStart == null) throw new Error(messagePrefix + "local file header missing fileDataStart field");

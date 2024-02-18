@@ -182,6 +182,18 @@ if (errorMessage != null) throw new Error(errorMessage);
 This function is automatically run for each entry, as long as `decodeStrings` is `true`.
 See `open()`, `strictFileNames`, and `Event: "entry"` for more information.
 
+### parseExtraFields(extraFieldBuffer)
+
+This function is used internally by yauzl to compute [`entry.extraFields`](#extrafields).
+It is exported in case you want to call it on [`localFileHeader.extraField`](#class-localfileheader).
+
+`extraFieldBuffer` is a `Buffer`, such as `localFileHeader.extraField`.
+Returns an `Array` with each item in the form `{id: id, data: data}`,
+where `id` is a `Number` and `data` is a `Buffer`.
+Throws an `Error` if the data encodes an item with a size that exceeds the bounds of the buffer.
+
+You may want to surround calls to this function with `try { ... } catch (err) { ... }` to handle the error.
+
 ### Class: ZipFile
 
 The constructor for the class is not part of the public API.
@@ -437,7 +449,7 @@ Furthermore, no automatic file name validation is performed for this file name.
 
 #### extraFields
 
-`Array` with each entry in the form `{id: id, data: data}`,
+`Array` with each item in the form `{id: id, data: data}`,
 where `id` is a `Number` and `data` is a `Buffer`.
 
 This library looks for and reads the ZIP64 Extended Information Extra Field (0x0001)
@@ -520,6 +532,7 @@ See the zipfile spec for what these fields mean.
 
 Note that unlike `Class: Entry`, the `fileName` and `extraField` are completely unprocessed.
 This notably lacks Unicode and ZIP64 handling as well as any kind of safety validation on the file name.
+See also [`parseExtraFields()`](#parseextrafields-extrafieldbuffer).
 
 Also note that if your object is missing some of these fields,
 make sure to read the docs on the `minimal` option in `readLocalFileHeader()`.

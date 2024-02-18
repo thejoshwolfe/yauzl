@@ -14,6 +14,7 @@ exports.fromBuffer = fromBuffer;
 exports.fromRandomAccessReader = fromRandomAccessReader;
 exports.dosDateTimeToDate = dosDateTimeToDate;
 exports.validateFileName = validateFileName;
+exports.parseExtraFields = parseExtraFields;
 exports.ZipFile = ZipFile;
 exports.Entry = Entry;
 exports.LocalFileHeader = LocalFileHeader;
@@ -305,21 +306,10 @@ ZipFile.prototype._readEntry = function() {
       // 46+n - Extra field
       var fileCommentStart = entry.fileNameLength + entry.extraFieldLength;
       var extraFieldBuffer = buffer.slice(entry.fileNameLength, fileCommentStart);
-      entry.extraFields = [];
-      var i = 0;
-      while (i < extraFieldBuffer.length - 3) {
-        var headerId = extraFieldBuffer.readUInt16LE(i + 0);
-        var dataSize = extraFieldBuffer.readUInt16LE(i + 2);
-        var dataStart = i + 4;
-        var dataEnd = dataStart + dataSize;
-        if (dataEnd > extraFieldBuffer.length) return emitErrorAndAutoClose(self, new Error("extra field length exceeds extra field buffer size"));
-        var dataBuffer = newBuffer(dataSize);
-        extraFieldBuffer.copy(dataBuffer, 0, dataStart, dataEnd);
-        entry.extraFields.push({
-          id: headerId,
-          data: dataBuffer,
-        });
-        i = dataEnd;
+      try {
+        entry.extraFields = parseExtraFields(extraFieldBuffer);
+      } catch (err) {
+        return emitErrorAndAutoClose(self, err);
       }
 
       // 46+n+m - File comment
@@ -668,6 +658,26 @@ function validateFileName(fileName) {
   }
   // all good
   return null;
+}
+
+function parseExtraFields(extraFieldBuffer) {
+  var extraFields = [];
+  var i = 0;
+  while (i < extraFieldBuffer.length - 3) {
+    var headerId = extraFieldBuffer.readUInt16LE(i + 0);
+    var dataSize = extraFieldBuffer.readUInt16LE(i + 2);
+    var dataStart = i + 4;
+    var dataEnd = dataStart + dataSize;
+    if (dataEnd > extraFieldBuffer.length) throw new Error("extra field length exceeds extra field buffer size");
+    var dataBuffer = newBuffer(dataSize);
+    extraFieldBuffer.copy(dataBuffer, 0, dataStart, dataEnd);
+    extraFields.push({
+      id: headerId,
+      data: dataBuffer,
+    });
+    i = dataEnd;
+  }
+  return extraFields;
 }
 
 function readAndAssertNoEof(reader, buffer, offset, length, position, callback) {
