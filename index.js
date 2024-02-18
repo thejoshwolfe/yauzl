@@ -685,8 +685,7 @@ function parseExtraFields(extraFieldBuffer) {
     var dataStart = i + 4;
     var dataEnd = dataStart + dataSize;
     if (dataEnd > extraFieldBuffer.length) throw new Error("extra field length exceeds extra field buffer size");
-    var dataBuffer = newBuffer(dataSize);
-    extraFieldBuffer.copy(dataBuffer, 0, dataStart, dataEnd);
+    var dataBuffer = extraFieldBuffer.subarray(dataStart, dataEnd);
     extraFields.push({
       id: headerId,
       data: dataBuffer,
