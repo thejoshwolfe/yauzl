@@ -87,7 +87,7 @@ function newLargeBinContentsProducer() {
         readStream.push(null);
         return;
       }
-      var bufferSize = Math.min(0x10000, largeBinLength - byteCount);
+      var bufferSize = Math.min(0x800000, largeBinLength - byteCount);
       var buffer = Buffer.allocUnsafe(bufferSize);
       for (var i = 0; i < bufferSize; i += 4) {
         var n = ((prev0 + prev1) & 0xffffffff) >>> 0;

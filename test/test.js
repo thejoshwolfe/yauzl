@@ -5,6 +5,7 @@ var fs = require("fs");
 var path = require("path");
 var Pend = require("pend");
 var util = require("util");
+var child_process = require("child_process");
 var Readable = require("stream").Readable;
 var Writable = require("stream").Writable;
 
@@ -92,6 +93,7 @@ listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry
             var timestamp = entry.getLastModDate();
             if (timestamp < earliestTimestamp) throw new Error(messagePrefix + "timestamp too early: " + timestamp);
             if (timestamp > new Date()) throw new Error(messagePrefix + "timestamp in the future: " + timestamp);
+
             var fileNameKey = fileName.replace(/\/$/, "");
             var expectedContents = expectedArchiveContents[fileNameKey];
             if (expectedContents == null) {
@@ -346,6 +348,70 @@ pend.go(zip64.runTest);
 
 // openReadStream with range
 pend.go(rangeTest.runTest);
+
+// Make sure the examples run with crashing.
+pend.go(function(cb) {
+  var examplesDir = path.join(__dirname, "../examples");
+  var zipfiles = listZipFiles([path.join(__dirname, "success")]);
+  var tmpDir = path.join(__dirname, ".tmp");
+  if (typeof fs.rmSync === "function") fs.rmSync(tmpDir, {recursive: true, force: true});
+
+  var parametersToTest = {
+    "compareCentralAndLocalHeaders.js": zipfiles,
+    "dump.js": zipfiles,
+    "promises.js": [null],
+    "unzip.js": zipfiles,
+  };
+  if (JSON.stringify(fs.readdirSync(examplesDir).sort()) !== JSON.stringify(Object.keys(parametersToTest).sort())) throw new Error("unexpected examples/ directory listing");
+  for (var f in parametersToTest) {
+    var args = parametersToTest[f];
+    var script = path.join(examplesDir, f);
+
+    if (f === "unzip.js" && typeof fs.rmSync !== "function") {
+      console.log("WARNING: skipping examples/unzip.js tests for node <14");
+      continue;
+    }
+
+    args.forEach(function(arg) {
+      var args = [path.resolve(script)];
+      var options = {
+        stdio: ["ignore", "ignore", "inherit"],
+        timeout: 10_000,
+      };
+      var testId;
+      if (arg != null) {
+        args.push(path.resolve(arg));
+        testId = `examples/${f} ${path.basename(arg)}: `;
+      } else {
+        testId = `examples/${f}: `;
+      }
+
+      // Handle special cases.
+      if (f === "dump.js" && /traditional-encryption/.exec(path.basename(arg))) {
+        args.push("--no-contents");
+      }
+      if (f === "unzip.js") {
+        if (/traditional-encryption/.exec(path.basename(arg))) return; // Can't do these.
+        // Quaranetine this in a temp directory.
+        fs.mkdirSync(tmpDir);
+        options.cwd = tmpDir;
+      }
+
+      process.stdout.write(testId);
+      var {status, error} = child_process.spawnSync("node", args, options);
+      if (status) error = new Error("child process return exit code " + status);
+      if (error) throw error;
+
+      if (f === "unzip.js") {
+        // Quaranetine this in a temp directory.
+        fs.rmSync(tmpDir, {recursive: true, force: true});
+      }
+
+      process.stdout.write("pass\n");
+    });
+  }
+  cb();
+});
 
 var done = false;
 pend.wait(function() {

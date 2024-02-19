@@ -168,6 +168,28 @@ Last I checked, it is at stage 3. https://github.com/tc39/proposal-temporal
 Once that new API is available and stable, better timezone handling should be possible here somehow.
 Feel free to open a feature request against this library when the time comes.
 
+### getFileNameLowLevel(generalPurposeBitFlag, fileNameBuffer, extraFields, strictFileNames)
+
+If you are setting `decodeStrings` to `false`, then this function can be used to decode the file name yourself.
+This function is effectively used internally by yauzl to populate the `entry.fileName` field when `decodeStrings` is `true`.
+
+WARNING: This method of getting the file name bypasses the security checks in [`validateFileName()`](#validatefilename-filename).
+You should call that function yourself to be sure to guard against malicious file paths.
+
+`generalPurposeBitFlag` can be found on an [`Entry`](#class-entry) or [`LocalFileHeader`](#class-localfileheader).
+Only General Purpose Bit 11 is used, and only when an Info-ZIP Unicode Path Extra Field cannot be found in `extraFields`.
+
+`fileNameBuffer` is a `Buffer` representing the file name field of the entry.
+This is `entry.fileNameRaw` or `localFileHeader.fileName`.
+
+`extraFields` is the parsed extra fields array from `entry.extraFields` or `parseExtraFields()`.
+
+`strictFileNames` is a boolean, the same as the option of the same name in `open()`.
+When `false`, backslash characters (`\`) will be replaced with forward slash characters (`/`).
+
+This function always returns a string, although it may not be a valid file name.
+See `validateFileName()`.
+
 ### validateFileName(fileName)
 
 Returns `null` or a `String` error message depending on the validity of `fileName`.
@@ -181,6 +203,18 @@ if (errorMessage != null) throw new Error(errorMessage);
 
 This function is automatically run for each entry, as long as `decodeStrings` is `true`.
 See `open()`, `strictFileNames`, and `Event: "entry"` for more information.
+
+### parseExtraFields(extraFieldBuffer)
+
+This function is used internally by yauzl to compute [`entry.extraFields`](#extrafields).
+It is exported in case you want to call it on [`localFileHeader.extraField`](#class-localfileheader).
+
+`extraFieldBuffer` is a `Buffer`, such as `localFileHeader.extraField`.
+Returns an `Array` with each item in the form `{id: id, data: data}`,
+where `id` is a `Number` and `data` is a `Buffer`.
+Throws an `Error` if the data encodes an item with a size that exceeds the bounds of the buffer.
+
+You may want to surround calls to this function with `try { ... } catch (err) { ... }` to handle the error.
 
 ### Class: ZipFile
 
@@ -304,6 +338,55 @@ must provide readable streams that implement a `._destroy()` method according to
 https://nodejs.org/api/stream.html#writable_destroyerr-callback (see `randomAccessReader._readStreamForRange()`)
 in order for calls to `readStream.destroy()` to work in this context.
 
+#### readLocalFileHeader(entry, [options], callback)
+
+This is a low-level function you probably don't need to call.
+The intended use case is either preparing to call `openReadStreamLowLevel()`
+or simply examining the content of the local file header out of curiosity or for debugging zip file structure issues.
+
+`entry` is an entry obtained from `Event: "entry"`.
+An `entry` in this library is a file's metadata from a Central Directory Header,
+and this function gives the corresponding redundant data in a Local File Header.
+
+`options` may be omitted or `null`, and has the following defaults:
+
+```js
+{
+  minimal: false,
+}
+```
+
+If `minimal` is `false` (or omitted or `null`), the callback receives a full `LocalFileHeader`.
+If `minimal` is `true`, the callback receives an object with a single property and no prototype `{fileDataStart: fileDataStart}`.
+For typical zipfile reading usecases, this field is the only one you need,
+and yauzl internally effectively uses the `{minimal: true}` option as part of `openReadStream()`.
+
+The `callback` receives `(err, localFileHeaderOrAnObjectWithJustOneFieldDependingOnTheMinimalOption)`,
+where the type of the second parameter is described in the above discussion of the `minimal` option.
+
+#### openReadStreamLowLevel(fileDataStart, compressedSize, relativeStart, relativeEnd, decompress, uncompressedSize, callback)
+
+This is a low-level function available for advanced use cases. You probably want `openReadStream()` instead.
+
+The intended use case for this function is calling `readEntry()` and `readLocalFileHeader()` with `{minimal: true}` first,
+and then opening the read stream at a later time, possibly after closing and reopening the entire zipfile,
+possibly even in a different process.
+The parameters are all integers and booleans, which are friendly to serialization.
+
+* `fileDataStart` - from `localFileHeader.fileDataStart`
+* `compressedSize` - from `entry.compressedSize`
+* `relativeStart` - the resolved value of `options.start` from `openReadStream()`. Must be a non-negative integer, not `null`. Typically `0` to start at the beginning of the data.
+* `relativeEnd` - the resolved value of `options.end` from `openReadStream()`. Must be a non-negative integer, not `null`. Typically `entry.compressedSize` to include all the data.
+* `decompress` - boolean indicating whether the data should be piped through a zlib inflate stream.
+* `uncompressedSize` - from `entry.uncompressedSize`. Only used when `validateEntrySizes` is `true`. If `validateEntrySizes` is `false`, this value is ignored, but must still be present, not omitted, in the arguments; you have to give it some value, even if it's `null`.
+* `callback` - receives `(err, readStream)`, the same as for `openReadStream()`
+
+This low-level function does not read any metadata from the underlying storage before opening the read stream.
+This is both a performance feature and a safety hazard.
+None of the integer parameters are bounds checked.
+None of the validation from `openReadStream()` with respect to compression and encryption is done here either.
+Only the bounds checks from `validateEntrySizes` are done, because that is part of processing the stream data.
+
 #### close()
 
 Causes all future calls to `openReadStream()` to fail,
@@ -359,12 +442,25 @@ These fields are of type `Number`:
  * `crc32`
  * `compressedSize`
  * `uncompressedSize`
- * `fileNameLength` (bytes)
- * `extraFieldLength` (bytes)
- * `fileCommentLength` (bytes)
+ * `fileNameLength` (in bytes)
+ * `extraFieldLength` (in bytes)
+ * `fileCommentLength` (in bytes)
  * `internalFileAttributes`
  * `externalFileAttributes`
  * `relativeOffsetOfLocalHeader`
+
+These fields are of type `Buffer`, and represent variable-length bytes before being processed:
+ * `fileNameRaw`
+ * `extraFieldRaw`
+ * `fileCommentRaw`
+
+There are additional fields described below: `fileName`, `extraFields`, `fileComment`.
+These are the processed versions of the `*Raw` fields listed above. See their own sections below.
+(Note the inconsistency in pluralization of "field" vs "fields" in `extraField`, `extraFields`, and `extraFieldRaw`.
+Sorry about that.)
+
+The `new Entry()` constructor is available for clients to call, but it's usually not useful.
+The constructor takes no parameters and does nothing; no fields will exist.
 
 #### fileName
 
@@ -383,7 +479,7 @@ Furthermore, no automatic file name validation is performed for this file name.
 
 #### extraFields
 
-`Array` with each entry in the form `{id: id, data: data}`,
+`Array` with each item in the form `{id: id, data: data}`,
 where `id` is a `Number` and `data` is a `Buffer`.
 
 This library looks for and reads the ZIP64 Extended Information Extra Field (0x0001)
@@ -393,12 +489,12 @@ This library also looks for and reads the Info-ZIP Unicode Path Extra Field (0x7
 in order to support some zipfiles that use it instead of General Purpose Bit 11
 to convey `UTF-8` file names.
 When the field is identified and verified to be reliable (see the zipfile spec),
-the the file name in this field is stored in the `fileName` property,
+the file name in this field is stored in the `fileName` property,
 and the file name in the central directory record for this entry is ignored.
 Note that when `decodeStrings` is false, all Info-ZIP Unicode Path Extra Fields are ignored.
 
 None of the other fields are considered significant by this library.
-Fields that this library reads are left unalterned in the `extraFields` array.
+Fields that this library reads are left unaltered in the `extraFields` array.
 
 #### fileComment
 
@@ -441,6 +537,35 @@ return this.compressionMethod === 8;
 ```
 
 See `openReadStream()` for the implications of this value.
+
+### Class: LocalFileHeader
+
+This is a trivial class that has no methods and only the following properties.
+The constructor is available to call, but it doesn't do anything.
+See `readLocalFileHeader()`.
+
+See the zipfile spec for what these fields mean.
+
+ * `fileDataStart` - `Number`: inferred from `fileNameLength`, `extraFieldLength`, and this struct's position in the zipfile.
+ * `versionNeededToExtract` - `Number`
+ * `generalPurposeBitFlag` - `Number`
+ * `compressionMethod` - `Number`
+ * `lastModFileTime` - `Number`
+ * `lastModFileDate` - `Number`
+ * `crc32` - `Number`
+ * `compressedSize` - `Number`
+ * `uncompressedSize` - `Number`
+ * `fileNameLength` - `Number`
+ * `extraFieldLength` - `Number`
+ * `fileName` - `Buffer`
+ * `extraField` - `Buffer`
+
+Note that unlike `Class: Entry`, the `fileName` and `extraField` are completely unprocessed.
+This notably lacks Unicode and ZIP64 handling as well as any kind of safety validation on the file name.
+See also [`parseExtraFields()`](#parseextrafields-extrafieldbuffer).
+
+Also note that if your object is missing some of these fields,
+make sure to read the docs on the `minimal` option in `readLocalFileHeader()`.
 
 ### Class: RandomAccessReader
 
@@ -631,6 +756,14 @@ This library makes no attempt to interpret the Language Encoding Flag.
 
 ## Change History
 
+ * 3.1.0
+   * Added `readLocalFileHeader()` and `Class: LocalFileHeader`.
+   * Added `openReadStreamLowLevel()`.
+   * Added `getFileNameLowLevel()` and `parseExtraFields()`.
+     Added fields to `Class: Entry`: `fileNameRaw`, `extraFieldRaw`, `fileCommentRaw`.
+   * Added `examples/compareCentralAndLocalHeaders.js` that demonstrate many of these low level APIs.
+   * Noted dropped support of node versions before 12 in the `"engines"` field of `package.json`.
+   * Fixed a crash when calling `openReadStream()` with an explicitly `null` options parameter (as opposed to omitted).
  * 3.0.0
    * BREAKING CHANGE: implementations of [RandomAccessReader](#class-randomaccessreader) that implement a `destroy` method must instead implement `_destroy` in accordance with the node standard https://nodejs.org/api/stream.html#writable_destroyerr-callback (note the error and callback parameters). If you continue to override `destory` instead, some error handling may be subtly broken. Additionally, this is required for async iterators to work correctly in some versions of node. [issue #110](https://github.com/thejoshwolfe/yauzl/issues/110)
    * BREAKING CHANGE: Drop support for node versions older than 12.

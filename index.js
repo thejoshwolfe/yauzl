@@ -13,9 +13,12 @@ exports.fromFd = fromFd;
 exports.fromBuffer = fromBuffer;
 exports.fromRandomAccessReader = fromRandomAccessReader;
 exports.dosDateTimeToDate = dosDateTimeToDate;
+exports.getFileNameLowLevel = getFileNameLowLevel;
 exports.validateFileName = validateFileName;
+exports.parseExtraFields = parseExtraFields;
 exports.ZipFile = ZipFile;
 exports.Entry = Entry;
+exports.LocalFileHeader = LocalFileHeader;
 exports.RandomAccessReader = RandomAccessReader;
 
 function open(path, options, callback) {
@@ -111,7 +114,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
     for (var i = bufferSize - eocdrWithoutCommentSize; i >= 0; i -= 1) {
       if (buffer.readUInt32LE(i) !== 0x06054b50) continue;
       // found eocdr
-      var eocdrBuffer = buffer.slice(i);
+      var eocdrBuffer = buffer.subarray(i);
 
       // 0 - End of central directory signature = 0x06054b50
       // 4 - Number of this disk
@@ -134,8 +137,8 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
       }
       // 22 - Comment
       // the encoding is always cp437.
-      var comment = decodeStrings ? decodeBuffer(eocdrBuffer, 22, eocdrBuffer.length, false)
-                                  : eocdrBuffer.slice(22);
+      var comment = decodeStrings ? decodeBuffer(eocdrBuffer.subarray(22), false)
+                                  : eocdrBuffer.subarray(22);
 
       if (!(entryCount === 0xffff || centralDirectoryOffset === 0xffffffff)) {
         return callback(null, new ZipFile(reader, centralDirectoryOffset, totalSize, entryCount, comment, options.autoClose, options.lazyEntries, decodeStrings, options.validateEntrySizes, options.strictFileNames));
@@ -297,34 +300,32 @@ ZipFile.prototype._readEntry = function() {
       if (err) return emitErrorAndAutoClose(self, err);
       if (self.emittedError) return;
       // 46 - File name
-      var isUtf8 = (entry.generalPurposeBitFlag & 0x800) !== 0;
-      entry.fileName = self.decodeStrings ? decodeBuffer(buffer, 0, entry.fileNameLength, isUtf8)
-                                          : buffer.slice(0, entry.fileNameLength);
-
+      entry.fileNameRaw = buffer.subarray(0, entry.fileNameLength);
       // 46+n - Extra field
       var fileCommentStart = entry.fileNameLength + entry.extraFieldLength;
-      var extraFieldBuffer = buffer.slice(entry.fileNameLength, fileCommentStart);
-      entry.extraFields = [];
-      var i = 0;
-      while (i < extraFieldBuffer.length - 3) {
-        var headerId = extraFieldBuffer.readUInt16LE(i + 0);
-        var dataSize = extraFieldBuffer.readUInt16LE(i + 2);
-        var dataStart = i + 4;
-        var dataEnd = dataStart + dataSize;
-        if (dataEnd > extraFieldBuffer.length) return emitErrorAndAutoClose(self, new Error("extra field length exceeds extra field buffer size"));
-        var dataBuffer = newBuffer(dataSize);
-        extraFieldBuffer.copy(dataBuffer, 0, dataStart, dataEnd);
-        entry.extraFields.push({
-          id: headerId,
-          data: dataBuffer,
-        });
-        i = dataEnd;
+      entry.extraFieldRaw = buffer.subarray(entry.fileNameLength, fileCommentStart);
+      // 46+n+m - File comment
+      entry.fileCommentRaw = buffer.subarray(fileCommentStart, fileCommentStart + entry.fileCommentLength);
+
+      // Parse the extra fields, which we need for processing other fields.
+      try {
+        entry.extraFields = parseExtraFields(entry.extraFieldRaw);
+      } catch (err) {
+        return emitErrorAndAutoClose(self, err);
       }
 
-      // 46+n+m - File comment
-      entry.fileComment = self.decodeStrings ? decodeBuffer(buffer, fileCommentStart, fileCommentStart + entry.fileCommentLength, isUtf8)
-                                             : buffer.slice(fileCommentStart, fileCommentStart + entry.fileCommentLength);
-      // compatibility hack for https://github.com/thejoshwolfe/yauzl/issues/47
+      // Interpret strings according to bit flags, extra fields, and options.
+      if (self.decodeStrings) {
+        var isUtf8 = (entry.generalPurposeBitFlag & 0x800) !== 0;
+        entry.fileComment = decodeBuffer(entry.fileCommentRaw, isUtf8);
+        entry.fileName = getFileNameLowLevel(entry.generalPurposeBitFlag, entry.fileNameRaw, entry.extraFields, self.strictFileNames);
+        var errorMessage = validateFileName(entry.fileName);
+        if (errorMessage != null) return emitErrorAndAutoClose(self, new Error(errorMessage));
+      } else {
+        entry.fileComment = entry.fileCommentRaw;
+        entry.fileName = entry.fileNameRaw;
+      }
+      // Maintain API compatibility. See https://github.com/thejoshwolfe/yauzl/issues/47
       entry.comment = entry.fileComment;
 
       self.readEntryCursor += buffer.length;
@@ -374,36 +375,6 @@ ZipFile.prototype._readEntry = function() {
         // 24 - Disk Start Number      4 bytes
       }
 
-      // check for Info-ZIP Unicode Path Extra Field (0x7075)
-      // see https://github.com/thejoshwolfe/yauzl/issues/33
-      if (self.decodeStrings) {
-        for (var i = 0; i < entry.extraFields.length; i++) {
-          var extraField = entry.extraFields[i];
-          if (extraField.id === 0x7075) {
-            if (extraField.data.length < 6) {
-              // too short to be meaningful
-              continue;
-            }
-            // Version       1 byte      version of this extra field, currently 1
-            if (extraField.data.readUInt8(0) !== 1) {
-              // > Changes may not be backward compatible so this extra
-              // > field should not be used if the version is not recognized.
-              continue;
-            }
-            // NameCRC32     4 bytes     File Name Field CRC32 Checksum
-            var oldNameCrc32 = extraField.data.readUInt32LE(1);
-            if (crc32.unsigned(buffer.slice(0, entry.fileNameLength)) !== oldNameCrc32) {
-              // > If the CRC check fails, this UTF-8 Path Extra Field should be
-              // > ignored and the File Name field in the header should be used instead.
-              continue;
-            }
-            // UnicodeName   Variable    UTF-8 version of the entry File Name
-            entry.fileName = decodeBuffer(extraField.data, 5, extraField.data.length, true);
-            break;
-          }
-        }
-      }
-
       // validate file size
       if (self.validateEntrySizes && entry.compressionMethod === 0) {
         var expectedCompressedSize = entry.uncompressedSize;
@@ -417,14 +388,6 @@ ZipFile.prototype._readEntry = function() {
         }
       }
 
-      if (self.decodeStrings) {
-        if (!self.strictFileNames) {
-          // allow backslash
-          entry.fileName = entry.fileName.replace(/\\/g, "/");
-        }
-        var errorMessage = validateFileName(entry.fileName, self.validateFileNameOptions);
-        if (errorMessage != null) return emitErrorAndAutoClose(self, new Error(errorMessage));
-      }
       self.emit("entry", entry);
 
       if (!self.lazyEntries) self._readEntry();
@@ -439,6 +402,9 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
   var relativeEnd = entry.compressedSize;
   if (callback == null) {
     callback = options;
+    options = null;
+  }
+  if (options == null) {
     options = {};
   } else {
     // validate options that the caller has no excuse to get wrong
@@ -486,7 +452,80 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
   if (entry.isEncrypted()) {
     if (options.decrypt !== false) return callback(new Error("entry is encrypted, and options.decrypt !== false"));
   }
-  // make sure we don't lose the fd before we open the actual read stream
+  var decompress;
+  if (entry.compressionMethod === 0) {
+    // 0 - The file is stored (no compression)
+    decompress = false;
+  } else if (entry.compressionMethod === 8) {
+    // 8 - The file is Deflated
+    decompress = options.decompress != null ? options.decompress : true;
+  } else {
+    return callback(new Error("unsupported compression method: " + entry.compressionMethod));
+  }
+
+  self.readLocalFileHeader(entry, {minimal: true}, function(err, localFileHeader) {
+    if (err) return callback(err);
+    self.openReadStreamLowLevel(
+      localFileHeader.fileDataStart, entry.compressedSize,
+      relativeStart, relativeEnd,
+      decompress, entry.uncompressedSize,
+      callback);
+  });
+};
+
+ZipFile.prototype.openReadStreamLowLevel = function(fileDataStart, compressedSize, relativeStart, relativeEnd, decompress, uncompressedSize, callback) {
+  var self = this;
+
+  var fileDataEnd = fileDataStart + compressedSize;
+  var readStream = self.reader.createReadStream({
+    start: fileDataStart + relativeStart,
+    end: fileDataStart + relativeEnd,
+  });
+  var endpointStream = readStream;
+  if (decompress) {
+    var destroyed = false;
+    var inflateFilter = zlib.createInflateRaw();
+    readStream.on("error", function(err) {
+      // setImmediate here because errors can be emitted during the first call to pipe()
+      setImmediate(function() {
+        if (!destroyed) inflateFilter.emit("error", err);
+      });
+    });
+    readStream.pipe(inflateFilter);
+
+    if (self.validateEntrySizes) {
+      endpointStream = new AssertByteCountStream(uncompressedSize);
+      inflateFilter.on("error", function(err) {
+        // forward zlib errors to the client-visible stream
+        setImmediate(function() {
+          if (!destroyed) endpointStream.emit("error", err);
+        });
+      });
+      inflateFilter.pipe(endpointStream);
+    } else {
+      // the zlib filter is the client-visible stream
+      endpointStream = inflateFilter;
+    }
+    // this is part of yauzl's API, so implement this function on the client-visible stream
+    installDestroyFn(endpointStream, function() {
+      destroyed = true;
+      if (inflateFilter !== endpointStream) inflateFilter.unpipe(endpointStream);
+      readStream.unpipe(inflateFilter);
+      // TODO: the inflateFilter may cause a memory leak. see Issue #27.
+      readStream.destroy();
+    });
+  }
+  callback(null, endpointStream);
+};
+
+ZipFile.prototype.readLocalFileHeader = function(entry, options, callback) {
+  var self = this;
+  if (callback == null) {
+    callback = options;
+    options = null;
+  }
+  if (options == null) options = {};
+
   self.reader.ref();
   var buffer = newBuffer(30);
   readAndAssertNoEof(self.reader, buffer, 0, buffer.length, entry.relativeOffsetOfLocalHeader, function(err) {
@@ -497,82 +536,58 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
       if (signature !== 0x04034b50) {
         return callback(new Error("invalid local file header signature: 0x" + signature.toString(16)));
       }
-      // all this should be redundant
-      // 4 - Version needed to extract (minimum)
-      // 6 - General purpose bit flag
-      // 8 - Compression method
-      // 10 - File last modification time
-      // 12 - File last modification date
-      // 14 - CRC-32
-      // 18 - Compressed size
-      // 22 - Uncompressed size
-      // 26 - File name length (n)
+
       var fileNameLength = buffer.readUInt16LE(26);
-      // 28 - Extra field length (m)
       var extraFieldLength = buffer.readUInt16LE(28);
+      var fileDataStart = entry.relativeOffsetOfLocalHeader + 30 + fileNameLength + extraFieldLength;
+      // We now have enough information to do this bounds check.
+      if (fileDataStart + entry.compressedSize > self.fileSize) {
+        return callback(new Error("file data overflows file bounds: " +
+            fileDataStart + " + " + entry.compressedSize + " > " + self.fileSize));
+      }
+
+      if (options.minimal) {
+        return callback(null, {fileDataStart: fileDataStart});
+      }
+
+      var localFileHeader = new LocalFileHeader();
+      localFileHeader.fileDataStart = fileDataStart;
+
+      // 4 - Version needed to extract (minimum)
+      localFileHeader.versionNeededToExtract = buffer.readUInt16LE(4);
+      // 6 - General purpose bit flag
+      localFileHeader.generalPurposeBitFlag = buffer.readUInt16LE(6);
+      // 8 - Compression method
+      localFileHeader.compressionMethod = buffer.readUInt16LE(8);
+      // 10 - File last modification time
+      localFileHeader.lastModFileTime = buffer.readUInt16LE(10);
+      // 12 - File last modification date
+      localFileHeader.lastModFileDate = buffer.readUInt16LE(12);
+      // 14 - CRC-32
+      localFileHeader.crc32 = buffer.readUInt32LE(14);
+      // 18 - Compressed size
+      localFileHeader.compressedSize = buffer.readUInt32LE(18);
+      // 22 - Uncompressed size
+      localFileHeader.uncompressedSize = buffer.readUInt32LE(22);
+      // 26 - File name length (n)
+      localFileHeader.fileNameLength = fileNameLength;
+      // 28 - Extra field length (m)
+      localFileHeader.extraFieldLength = extraFieldLength;
       // 30 - File name
       // 30+n - Extra field
-      var localFileHeaderEnd = entry.relativeOffsetOfLocalHeader + buffer.length + fileNameLength + extraFieldLength;
-      var decompress;
-      if (entry.compressionMethod === 0) {
-        // 0 - The file is stored (no compression)
-        decompress = false;
-      } else if (entry.compressionMethod === 8) {
-        // 8 - The file is Deflated
-        decompress = options.decompress != null ? options.decompress : true;
-      } else {
-        return callback(new Error("unsupported compression method: " + entry.compressionMethod));
-      }
-      var fileDataStart = localFileHeaderEnd;
-      var fileDataEnd = fileDataStart + entry.compressedSize;
-      if (entry.compressedSize !== 0) {
-        // bounds check now, because the read streams will probably not complain loud enough.
-        // since we're dealing with an unsigned offset plus an unsigned size,
-        // we only have 1 thing to check for.
-        if (fileDataEnd > self.fileSize) {
-          return callback(new Error("file data overflows file bounds: " +
-              fileDataStart + " + " + entry.compressedSize + " > " + self.fileSize));
-        }
-      }
-      var readStream = self.reader.createReadStream({
-        start: fileDataStart + relativeStart,
-        end: fileDataStart + relativeEnd,
-      });
-      var endpointStream = readStream;
-      if (decompress) {
-        var destroyed = false;
-        var inflateFilter = zlib.createInflateRaw();
-        readStream.on("error", function(err) {
-          // setImmediate here because errors can be emitted during the first call to pipe()
-          setImmediate(function() {
-            if (!destroyed) inflateFilter.emit("error", err);
-          });
-        });
-        readStream.pipe(inflateFilter);
 
-        if (self.validateEntrySizes) {
-          endpointStream = new AssertByteCountStream(entry.uncompressedSize);
-          inflateFilter.on("error", function(err) {
-            // forward zlib errors to the client-visible stream
-            setImmediate(function() {
-              if (!destroyed) endpointStream.emit("error", err);
-            });
-          });
-          inflateFilter.pipe(endpointStream);
-        } else {
-          // the zlib filter is the client-visible stream
-          endpointStream = inflateFilter;
+      buffer = newBuffer(fileNameLength + extraFieldLength);
+      self.reader.ref();
+      readAndAssertNoEof(self.reader, buffer, 0, buffer.length, entry.relativeOffsetOfLocalHeader + 30, function(err) {
+        try {
+          if (err) return callback(err);
+          localFileHeader.fileName = buffer.subarray(0, fileNameLength);
+          localFileHeader.extraField = buffer.subarray(fileNameLength);
+          return callback(null, localFileHeader);
+        } finally {
+          self.reader.unref();
         }
-        // this is part of yauzl's API, so implement this function on the client-visible stream
-        installDestroyFn(endpointStream, function() {
-          destroyed = true;
-          if (inflateFilter !== endpointStream) inflateFilter.unpipe(endpointStream);
-          readStream.unpipe(inflateFilter);
-          // TODO: the inflateFilter may cause a memory leak. see Issue #27.
-          readStream.destroy();
-        });
-      }
-      callback(null, endpointStream);
+      });
     } finally {
       self.reader.unref();
     }
@@ -591,6 +606,9 @@ Entry.prototype.isCompressed = function() {
   return this.compressionMethod === 8;
 };
 
+function LocalFileHeader() {
+}
+
 function dosDateTimeToDate(date, time) {
   var day = date & 0x1f; // 1-31
   var month = (date >> 5 & 0xf) - 1; // 1-12, 0-11
@@ -602,6 +620,50 @@ function dosDateTimeToDate(date, time) {
   var hour = time >> 11 & 0x1f; // 0-23
 
   return new Date(year, month, day, hour, minute, second, millisecond);
+}
+
+function getFileNameLowLevel(generalPurposeBitFlag, fileNameBuffer, extraFields, strictFileNames) {
+  var fileName = null;
+
+  // check for Info-ZIP Unicode Path Extra Field (0x7075)
+  // see https://github.com/thejoshwolfe/yauzl/issues/33
+  for (var i = 0; i < extraFields.length; i++) {
+    var extraField = extraFields[i];
+    if (extraField.id === 0x7075) {
+      if (extraField.data.length < 6) {
+        // too short to be meaningful
+        continue;
+      }
+      // Version       1 byte      version of this extra field, currently 1
+      if (extraField.data.readUInt8(0) !== 1) {
+        // > Changes may not be backward compatible so this extra
+        // > field should not be used if the version is not recognized.
+        continue;
+      }
+      // NameCRC32     4 bytes     File Name Field CRC32 Checksum
+      var oldNameCrc32 = extraField.data.readUInt32LE(1);
+      if (crc32.unsigned(fileNameBuffer) !== oldNameCrc32) {
+        // > If the CRC check fails, this UTF-8 Path Extra Field should be
+        // > ignored and the File Name field in the header should be used instead.
+        continue;
+      }
+      // UnicodeName   Variable    UTF-8 version of the entry File Name
+      fileName = decodeBuffer(extraField.data.subarray(5), true);
+      break;
+    }
+  }
+
+  if (fileName == null) {
+    // The typical case.
+    var isUtf8 = (generalPurposeBitFlag & 0x800) !== 0;
+    fileName = decodeBuffer(fileNameBuffer, isUtf8);
+  }
+
+  if (!strictFileNames) {
+    // Allow backslash.
+    fileName = fileName.replace(/\\/g, "/");
+  }
+  return fileName;
 }
 
 function validateFileName(fileName) {
@@ -616,6 +678,25 @@ function validateFileName(fileName) {
   }
   // all good
   return null;
+}
+
+function parseExtraFields(extraFieldBuffer) {
+  var extraFields = [];
+  var i = 0;
+  while (i < extraFieldBuffer.length - 3) {
+    var headerId = extraFieldBuffer.readUInt16LE(i + 0);
+    var dataSize = extraFieldBuffer.readUInt16LE(i + 2);
+    var dataStart = i + 4;
+    var dataEnd = dataStart + dataSize;
+    if (dataEnd > extraFieldBuffer.length) throw new Error("extra field length exceeds extra field buffer size");
+    var dataBuffer = extraFieldBuffer.subarray(dataStart, dataEnd);
+    extraFields.push({
+      id: headerId,
+      data: dataBuffer,
+    });
+    i = dataEnd;
+  }
+  return extraFields;
 }
 
 function readAndAssertNoEof(reader, buffer, offset, length, position, callback) {
@@ -677,6 +758,7 @@ RandomAccessReader.prototype.unref = function() {
   }
 };
 RandomAccessReader.prototype.createReadStream = function(options) {
+  if (options == null) options = {};
   var start = options.start;
   var end = options.end;
   if (start === end) {
@@ -755,12 +837,12 @@ RefUnrefFilter.prototype.unref = function(cb) {
 };
 
 var cp437 = '\u0000☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼ !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~⌂ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ';
-function decodeBuffer(buffer, start, end, isUtf8) {
+function decodeBuffer(buffer, isUtf8) {
   if (isUtf8) {
-    return buffer.toString("utf8", start, end);
+    return buffer.toString("utf8");
   } else {
     var result = "";
-    for (var i = start; i < end; i++) {
+    for (var i = 0; i < buffer.length; i++) {
       result += cp437[buffer[i]];
     }
     return result;

@@ -10,7 +10,7 @@
 
 let yauzl = require("../"); // replace with: let yauzl = require("yauzl");
 
-let simpleZipBuffer = new Buffer([
+let simpleZipBuffer = Buffer.from([
   80,75,3,4,20,0,8,8,0,0,134,96,146,74,0,0,
   0,0,0,0,0,0,0,0,0,0,5,0,0,0,97,46,116,120,
   116,104,101,108,108,111,10,80,75,7,8,32,
