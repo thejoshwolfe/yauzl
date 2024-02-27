@@ -213,7 +213,7 @@ listZipFiles([path.join(__dirname, "failure")]).forEach(function(zipfilePath) {
       }
     }
     function checkErrorMessage(err) {
-      var actualMessage = err.message.replace(/[^0-9A-Za-z-]+/g, " ");
+      var actualMessage = err.message.replace(/[^0-9A-Za-z-]+/g, " ").trimRight();
       if (actualMessage !== expectedErrorMessage) {
         throw new Error(zipfilePath + ": wrong error message: " + actualMessage);
       }

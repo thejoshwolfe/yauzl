@@ -754,8 +754,18 @@ Zip files officially support charset encodings other than CP437 and UTF-8,
 but the zip file spec does not specify how it works.
 This library makes no attempt to interpret the Language Encoding Flag.
 
+### How Ambiguities Are Handled
+
+The zip file specification has several ambiguities inherent in its design. Yikes!
+
+* The `.ZIP file comment` must not contain the `end of central dir signature` bytes `50 4b 05 06`. This corresponds to the text `"PK☺☻"` in CP437. While this is allowed by the specification, yauzl will hopefully reject this situation with an "Invalid comment length" error. However, in some situations unpredictable incorrect behavior will ensue, which will probably manifest in either an invalid signature error or some kind of bounds check error, such as "Unexpected EOF".
+* In non-ZIP64 files, the last central directory header must not have the bytes `50 4b 06 07` (`"PK♠•"` in CP437) exactly 20 bytes from its end, which might be in the `file name`, the `extra field`, or the `file comment`. The presence of these bytes indicates that this is a ZIP64 file.
+
 ## Change History
 
+ * 3.1.1
+   * Fixed handling non-64 bit files that actually have exactly 0xffff or 0xffffffff values in End of Central Directory Record. This fixes erroneous "invalid zip64 end of central directory locator signature" errors. [issue #108](https://github.com/thejoshwolfe/yauzl/pull/108)
+   * Fixed handling of 64-bit zip files that put 0xffff or 0xffffffff in every field overridden in the Zip64 end of central directory record even if the value would have fit without overflow. In particular, this fixes an incorrect "multi-disk zip files are not supported" error. [pull #118](https://github.com/thejoshwolfe/yauzl/pull/118)
  * 3.1.0
    * Added `readLocalFileHeader()` and `Class: LocalFileHeader`.
    * Added `openReadStreamLowLevel()`.
