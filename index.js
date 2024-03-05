@@ -331,22 +331,13 @@ ZipFile.prototype._readEntry = function() {
       self.readEntryCursor += buffer.length;
       self.entriesRead += 1;
 
-      if (entry.uncompressedSize            === 0xffffffff ||
-          entry.compressedSize              === 0xffffffff ||
-          entry.relativeOffsetOfLocalHeader === 0xffffffff) {
-        // ZIP64 format
-        // find the Zip64 Extended Information Extra Field
-        var zip64EiefBuffer = null;
-        for (var i = 0; i < entry.extraFields.length; i++) {
-          var extraField = entry.extraFields[i];
-          if (extraField.id === 0x0001) {
-            zip64EiefBuffer = extraField.data;
-            break;
-          }
-        }
-        if (zip64EiefBuffer == null) {
-          return emitErrorAndAutoClose(self, new Error("expected zip64 extended information extra field"));
-        }
+      // Check for the Zip64 Extended Information Extra Field.
+      for (var i = 0; i < entry.extraFields.length; i++) {
+        var extraField = entry.extraFields[i];
+        if (extraField.id !== 0x0001) continue;
+        // Found it.
+
+        var zip64EiefBuffer = extraField.data;
         var index = 0;
         // 0 - Original Size          8 bytes
         if (entry.uncompressedSize === 0xffffffff) {
@@ -373,6 +364,8 @@ ZipFile.prototype._readEntry = function() {
           index += 8;
         }
         // 24 - Disk Start Number      4 bytes
+
+        break;
       }
 
       // validate file size

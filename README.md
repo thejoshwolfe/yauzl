@@ -763,6 +763,8 @@ The zip file specification has several ambiguities inherent in its design. Yikes
 
 ## Change History
 
+ * 3.1.2
+   * Fixed handling non-64 bit entries (similar to the version 3.1.1 fix) that actually have exactly 0xffffffff values in the fields. This fixes erroneous "expected zip64 extended information extra field" errors. [issue #108](https://github.com/thejoshwolfe/yauzl/pull/108)
  * 3.1.1
    * Fixed handling non-64 bit files that actually have exactly 0xffff or 0xffffffff values in End of Central Directory Record. This fixes erroneous "invalid zip64 end of central directory locator signature" errors. [issue #108](https://github.com/thejoshwolfe/yauzl/pull/108)
    * Fixed handling of 64-bit zip files that put 0xffff or 0xffffffff in every field overridden in the Zip64 end of central directory record even if the value would have fit without overflow. In particular, this fixes an incorrect "multi-disk zip files are not supported" error. [pull #118](https://github.com/thejoshwolfe/yauzl/pull/118)
