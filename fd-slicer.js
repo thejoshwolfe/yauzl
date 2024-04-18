@@ -195,12 +195,29 @@ function BufferSlicer(buffer, options) {
 }
 
 BufferSlicer.prototype.read = function(buffer, offset, length, position, callback) {
-  var end = position + length;
-  var delta = end - this.buffer.length;
-  var written = (delta > 0) ? delta : length;
-  this.buffer.copy(buffer, offset, position, end);
+  if (!(0 <= offset && offset <= buffer.length)) throw new RangeError("offset outside buffer: 0 <= " + offset + " <= " + buffer.length);
+  if (position < 0) throw new RangeError("position is negative: " + position);
+  if (offset + length > buffer.length) {
+    // The caller's buffer can't hold all the bytes they're trying to read.
+    // Clamp the length instead of giving an error.
+    // The callback will be informed of fewer than expected bytes written.
+    length = buffer.length - offset;
+  }
+  if (position + length > this.buffer.length) {
+    // Clamp any attempt to read past the end of the source buffer.
+    length = this.buffer.length - position;
+  }
+  if (length <= 0) {
+    // After any clamping, we're fully out of bounds or otherwise have nothing to do.
+    // This isn't an error; it's just zero bytes written.
+    setImmediate(function() {
+      callback(null, 0);
+    });
+    return;
+  }
+  this.buffer.copy(buffer, offset, position, position + length);
   setImmediate(function() {
-    callback(null, written);
+    callback(null, length);
   });
 };
 
