@@ -836,3 +836,11 @@ The zip file specification has several ambiguities inherent in its design. Yikes
    * Fix bug with using `iconv`.
  * 2.0.0
    * Initial release.
+
+## Development
+
+One of the trickiest things in development is crafting test cases located in `test/{success,failure}/`.
+These are zip files that have been specifically generated or design to test certain conditions in this library.
+I recommend using [hexdump-zip](https://github.com/thejoshwolfe/hexdump-zip) to examine the structure of a zipfile.
+
+For making new error cases, I typically start by copying `test/success/linux-info-zip.zip`, and then editing a few bytes with a hex editor.
