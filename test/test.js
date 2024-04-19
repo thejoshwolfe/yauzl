@@ -25,6 +25,19 @@ function shouldDoTest(testPath) {
   return args.indexOf(testPath) !== -1;
 }
 
+var openFunctions = [
+  function(zipfilePath, testId, options, callback) { yauzl.open(zipfilePath, options, callback); },
+  function(zipfilePath, testId, options, callback) { yauzl.fromBuffer(fs.readFileSync(zipfilePath), options, callback); },
+  function(zipfilePath, testId, options, callback) { openWithRandomAccess(zipfilePath, options, true, testId, callback); },
+  function(zipfilePath, testId, options, callback) { openWithRandomAccess(zipfilePath, options, false, testId, callback); },
+];
+var openFunctionNames = [
+  "fd",
+  "buffer",
+  "randomAccess",
+  "minimalRandomAccess",
+];
+
 // success tests
 listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry-sizes")]).forEach(function(zipfilePath) {
   if (!shouldDoTest(zipfilePath)) return;
@@ -38,15 +51,9 @@ listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry
       options.validateEntrySizes = false;
     });
   }
-  var openFunctions = [
-    function(testId, options, callback) { yauzl.open(zipfilePath, options, callback); },
-    function(testId, options, callback) { yauzl.fromBuffer(fs.readFileSync(zipfilePath), options, callback); },
-    function(testId, options, callback) { openWithRandomAccess(zipfilePath, options, true, testId, callback); },
-    function(testId, options, callback) { openWithRandomAccess(zipfilePath, options, false, testId, callback); },
-  ];
   openFunctions.forEach(function(openFunction, i) {
     optionConfigurations.forEach(function(options, j) {
-      var testId = zipfilePath + "(" + ["fd", "buffer", "randomAccess", "minimalRandomAccess"][i] + "," + j + "): ";
+      var testId = zipfilePath + "(" + openFunctionNames[i] + "," + j + "): ";
       var expectedPathPrefix = zipfilePath.replace(/\.zip$/, "");
       var expectedArchiveContents = {};
       var DIRECTORY = 1; // not a string
@@ -77,7 +84,7 @@ listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry
         }
       }
       pend.go(function(zipfileCallback) {
-        openFunction(testId, options, function(err, zipfile) {
+        openFunction(zipfilePath, testId, options, function(err, zipfile) {
           if (err) throw err;
           zipfile.readEntry();
           zipfile.on("entry", function(entry) {
@@ -163,68 +170,77 @@ listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry
 listZipFiles([path.join(__dirname, "failure")]).forEach(function(zipfilePath) {
   if (!shouldDoTest(zipfilePath)) return;
   var expectedErrorMessage = path.basename(zipfilePath).replace(/(_\d+)?\.zip$/, "");
-  var failedYet = false;
-  var emittedError = false;
-  pend.go(function(cb) {
-    var operationsInProgress = 0;
-    if (/invalid characters in fileName/.test(zipfilePath)) {
-      // this error can only happen when you specify an option
-      yauzl.open(zipfilePath, {strictFileNames: true}, onZipFile);
-    } else {
-      yauzl.open(zipfilePath, onZipFile);
-    }
-    return;
 
-    function onZipFile(err, zipfile) {
-      if (err) return checkErrorMessage(err);
-      zipfile.on("error", function(err) {
-        noEventsAllowedAfterError();
-        emittedError = true;
-        checkErrorMessage(err);
-      });
-      zipfile.on("entry", function(entry) {
-        noEventsAllowedAfterError();
-        // let's also try to read directories, cuz whatever.
-        operationsInProgress += 1;
-        zipfile.openReadStream(entry, function(err, stream) {
-          if (err) return checkErrorMessage(err);
-          stream.on("error", function(err) {
-            checkErrorMessage(err);
-          });
-          stream.on("data", function(data) {
-            // ignore
-          });
-          stream.on("end", function() {
-            doneWithSomething();
+  openFunctions.forEach(function(openFunction, i) {
+    var testId = zipfilePath + "(" + openFunctionNames[i] + "): ";
+    var failedYet = false;
+    var emittedError = false;
+    pend.go(function(cb) {
+      var operationsInProgress = 0;
+      var options = null;
+      if (/invalid characters in fileName/.test(zipfilePath)) {
+        // this error can only happen when you specify an option
+        options = {strictFileNames: true};
+      }
+      openFunction(zipfilePath, testId, options, onZipFile);
+
+      function onZipFile(err, zipfile) {
+        if (err) return checkErrorMessage(err);
+        zipfile.on("error", function(err) {
+          noEventsAllowedAfterError();
+          emittedError = true;
+          checkErrorMessage(err);
+        });
+        zipfile.on("entry", function(entry) {
+          noEventsAllowedAfterError();
+          // let's also try to read directories, cuz whatever.
+          operationsInProgress += 1;
+          zipfile.openReadStream(entry, function(err, stream) {
+            if (err) return checkErrorMessage(err);
+            stream.on("error", function(err) {
+              checkErrorMessage(err);
+            });
+            stream.on("data", function(data) {
+              // ignore
+            });
+            stream.on("end", function() {
+              doneWithSomething();
+            });
           });
         });
-      });
-      operationsInProgress += 1;
-      zipfile.on("end", function() {
-        noEventsAllowedAfterError();
-        doneWithSomething();
-      });
-      function doneWithSomething() {
-        operationsInProgress -= 1;
-        if (operationsInProgress !== 0) return;
-        if (!failedYet) {
-          throw new Error(zipfilePath + ": expected failure");
+        operationsInProgress += 1;
+        zipfile.on("end", function() {
+          noEventsAllowedAfterError();
+          doneWithSomething();
+        });
+        function doneWithSomething() {
+          operationsInProgress -= 1;
+          if (operationsInProgress !== 0) return;
+          if (!failedYet) {
+            throw new Error(testId + "expected failure");
+          }
         }
       }
-    }
-    function checkErrorMessage(err) {
-      var actualMessage = err.message.replace(/[^0-9A-Za-z-]+/g, " ").trimRight();
-      if (actualMessage !== expectedErrorMessage) {
-        throw new Error(zipfilePath + ": wrong error message: " + actualMessage);
+      function checkErrorMessage(err) {
+        var actualMessage = err.message.replace(/[^0-9A-Za-z-]+/g, " ").trimRight();
+        if (actualMessage !== expectedErrorMessage) {
+          if (i !== 0) {
+            // The error messages are tuned for the common case.
+            // Sometimes other open functions give slightly different error messages, and that's ok,
+            // as long as we're still getting some error.
+          } else {
+            throw new Error(testId + "wrong error message: " + actualMessage);
+          }
+        }
+        console.log(testId + "pass");
+        failedYet = true;
+        operationsInProgress = -Infinity;
+        cb();
       }
-      console.log(zipfilePath + ": pass");
-      failedYet = true;
-      operationsInProgress = -Infinity;
-      cb();
-    }
-    function noEventsAllowedAfterError() {
-      if (emittedError) throw new Error("events emitted after error event");
-    }
+      function noEventsAllowedAfterError() {
+        if (emittedError) throw new Error(testId + "events emitted after error event");
+      }
+    });
   });
 });
 
@@ -471,11 +487,11 @@ function openWithRandomAccess(zipfilePath, options, implementRead, testId, callb
   if (implementRead) {
     InefficientRandomAccessReader.prototype.read = function(buffer, offset, length, position, callback) {
       fs.open(zipfilePath, "r", function(err, fd) {
-        if (err) throw err;
+        if (err) return callback(err);
         fs.read(fd, buffer, offset, length, position, function(err, bytesRead) {
-          if (bytesRead < length) throw new Error("unexpected EOF");
+          if (bytesRead < length) return callback(new Error("unexpected EOF"));
           fs.close(fd, function(err) {
-            if (err) throw err;
+            if (err) return callback(err);
             callback();
           });
         });
@@ -488,10 +504,10 @@ function openWithRandomAccess(zipfilePath, options, implementRead, testId, callb
   };
 
   fs.stat(zipfilePath, function(err, stats) {
-    if (err) throw err;
+    if (err) return callback(err);
     var reader = new InefficientRandomAccessReader();
     yauzl.fromRandomAccessReader(reader, stats.size, options, function(err, zipfile) {
-      if (err) throw err;
+      if (err) return callback(err);
       callback(null, zipfile);
     });
   });
