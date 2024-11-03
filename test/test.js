@@ -9,11 +9,11 @@ var child_process = require("child_process");
 var Readable = require("stream").Readable;
 var Writable = require("stream").Writable;
 
-// this is the date i made the example zip files and their content files,
-// so this timestamp will be earlier than all the ones stored in these test zip files
-// (and probably all future zip files).
-// no timezone awareness, because that's how MS-DOS rolls.
+// This is a month before I made the example zip files and their content files,
+// so this timestamp will be earlier than all the ones stored in these test zip files unless otherwise noted.
 var earliestTimestamp = new Date(2014, 7, 18, 0, 0, 0, 0);
+
+if (Date.now() / 1000 >= 2147483648) throw new Error("The year is 2038. The Epochalypse is uppon us. Signed 32-bit POSIX timestamps have collapsed. TODO: fix.");
 
 var pend = new Pend();
 // 1 thing at a time for better determinism/reproducibility
@@ -98,8 +98,22 @@ listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry
             if (fileComment !== "") throw new Error(testId + "expected empty fileComment");
             var messagePrefix = testId + fileName + ": ";
             var timestamp = entry.getLastModDate();
-            if (timestamp < earliestTimestamp) throw new Error(messagePrefix + "timestamp too early: " + timestamp);
-            if (timestamp > new Date()) throw new Error(messagePrefix + "timestamp in the future: " + timestamp);
+            if (fileName === "unix-epoch.txt") {
+              if (timestamp.getTime() !== 0) throw new Error(messagePrefix + "expected timestamp to be 0. found: " + timestamp);
+              var dosTimestamp = entry.getLastModDate({forceDosFormat:true});
+              if (dosTimestamp.getTime() === 0) throw new Error(messagePrefix + "DOS timestamp can't encode this time: " + dosTimestamp);
+              var dosTimestampUTC = entry.getLastModDate({forceDosFormat:true, timezone: "UTC"});
+              // This test is only meaningful when the system's local UTC offset is not 0.
+              if (dosTimestamp - dosTimestampUTC !== dosTimestamp.getTimezoneOffset() * 60 * 1000) {
+                throw new Error(messagePrefix +
+                  "expected UTC timezone to be different by the current timezone offset. " +
+                  "local: " + dosTimestamp + ", UTC: " + dosTimestampUTC
+                );
+              }
+            } else {
+              if (timestamp < earliestTimestamp) throw new Error(messagePrefix + "timestamp too early: " + timestamp);
+              if (timestamp > new Date()) throw new Error(messagePrefix + "timestamp in the future: " + timestamp);
+            }
 
             var fileNameKey = fileName.replace(/\/$/, "");
             var expectedContents = expectedArchiveContents[fileNameKey];
