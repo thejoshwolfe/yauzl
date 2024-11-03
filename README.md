@@ -783,6 +783,10 @@ The zip file specification has several ambiguities inherent in its design. Yikes
 
 ## Change History
 
+ * 3.2.0
+   * Added support for reading third-party extensions for timestamps: InfoZIP "universal timestamp" extra field and NTFS extra field. [pull #160](https://github.com/thejoshwolfe/yauzl/pull/160)
+   * `entry.getLastModDate()` takes options `forceDosFormat` to revert the above change, and `timezone` to allow UTC interpretation of DOS timestamps.
+   * Documented `dosDateTimeToDate()` as now deprecated.
  * 3.1.3
    * Fixed a crash when using `fromBuffer()` to read corrupt zip files that specify out of bounds file offsets. [issue #156](https://github.com/thejoshwolfe/yauzl/pull/156)
    * Enahnced the test suite to run the error tests through `fromBuffer()` and `fromRandomAccessReader()` in addition to `open()`, which would have caught the above.

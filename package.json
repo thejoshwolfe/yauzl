@@ -1,6 +1,6 @@
 {
   "name": "yauzl",
-  "version": "3.1.3",
+  "version": "3.2.0",
   "description": "yet another unzip library for node",
   "engines": {
     "node": ">=12"
