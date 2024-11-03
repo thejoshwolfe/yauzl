@@ -600,6 +600,7 @@ Entry.prototype.getLastModDate = function(options) {
         // InfoZIP "universal timestamp" extended field (`0x5455` aka `"UT"`).
         // See the InfoZIP source code unix/unix.c:set_extra_field() and zipfile.c:ef_scan_ut_time().
         var data = extraField.data;
+        if (data.length < 5) continue; // Too short.
         // The flags define which of the three fields are present: mtime, atime, ctime.
         // We only care about mtime.
         // Also, ctime is never included in practice.
@@ -616,7 +617,7 @@ Entry.prototype.getLastModDate = function(options) {
         var data = extraField.data;
         // 4 bytes reserved
         var cursor = 4;
-        while (cursor < data.length) {
+        while (cursor < data.length + 4) {
           // 2 bytes Tag
           var tag = data.readUInt16LE(cursor);
           cursor += 2;
@@ -629,7 +630,7 @@ Entry.prototype.getLastModDate = function(options) {
             continue;
           }
           // Tag1 is actually the only defined Tag.
-          if (size < 8) break; // Invalid. Ignore.
+          if (size < 8 || cursor + size > data.length) break; // Invalid. Ignore.
           // 8 bytes Mtime
           var hundredNanoSecondsSince1601 = 4294967296 * data.readInt32LE(cursor + 4) + data.readUInt32LE(cursor)
           // Convert from NTFS to POSIX milliseconds.
