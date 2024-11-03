@@ -589,8 +589,69 @@ ZipFile.prototype.readLocalFileHeader = function(entry, options, callback) {
 
 function Entry() {
 }
-Entry.prototype.getLastModDate = function() {
-  return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime);
+Entry.prototype.getLastModDate = function(options) {
+  if (options == null) options = {};
+
+  if (!options.forceDosFormat) {
+    // Check extended fields.
+    for (var i = 0; i < this.extraFields.length; i++) {
+      var extraField = this.extraFields[i];
+      if (extraField.id === 0x5455) {
+        // InfoZIP "universal timestamp" extended field (`0x5455` aka `"UT"`).
+        // See the InfoZIP source code unix/unix.c:set_extra_field() and zipfile.c:ef_scan_ut_time().
+        var data = extraField.data;
+        if (data.length < 5) continue; // Too short.
+        // The flags define which of the three fields are present: mtime, atime, ctime.
+        // We only care about mtime.
+        // Also, ctime is never included in practice.
+        // And also, atime is only included in the local file header for some reason
+        // despite the flags lying about its inclusion in the central header.
+        var flags = data[0];
+        var HAS_MTIME = 1;
+        if (!(flags & HAS_MTIME)) continue; // This will realistically never happen.
+        // Although the positions of all of the fields shift around depending on the presence of other fields,
+        // mtime is always first if present, and that's the only one we care about.
+        var posixTimestamp = data.readInt32LE(1);
+        return new Date(posixTimestamp * 1000);
+      } else if (extraField.id === 0x000a) {
+        var data = extraField.data;
+        // 4 bytes reserved
+        var cursor = 4;
+        while (cursor < data.length + 4) {
+          // 2 bytes Tag
+          var tag = data.readUInt16LE(cursor);
+          cursor += 2;
+          // 2 bytes Size
+          var size = data.readUInt16LE(cursor);
+          cursor += 2;
+          if (tag !== 1) {
+            // Wrong tag. This will realistically never happen.
+            cursor += size;
+            continue;
+          }
+          // Tag1 is actually the only defined Tag.
+          if (size < 8 || cursor + size > data.length) break; // Invalid. Ignore.
+          // 8 bytes Mtime
+          var hundredNanoSecondsSince1601 = 4294967296 * data.readInt32LE(cursor + 4) + data.readUInt32LE(cursor)
+          // Convert from NTFS to POSIX milliseconds.
+          // The big number below is the milliseconds between year 1601 and year 1970
+          // (i.e. the negative POSIX timestamp of 1601-01-01 00:00:00Z)
+          var millisecondsSince1970 = hundredNanoSecondsSince1601 / 10000 - 11644473600000;
+          // Note on numeric precision: JavaScript Number objects lose precision above Number.MAX_SAFE_INTEGER,
+          // and NTFS timestamps are typically much bigger than that limit.
+          // (MAX_SAFE_INTEGER would represent 1629-07-17T23:58:45.475Z.)
+          // However, we're losing precision in the conversion from 100nanosecond units to millisecond units anyway,
+          // and the time at which we also lose 1-millisecond precision is just past the JavaScript Date limit (by design).
+          // Up through the year 2057, this conversion only drops 4 bits of precision,
+          // which is well under the 13-14 bits ratio between the milliseconds and 100nanoseconds.
+          return new Date(millisecondsSince1970);
+        }
+      }
+    }
+  }
+
+  // Fallback to non-extended encoding.
+  return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime, options.timezone);
 };
 Entry.prototype.isEncrypted = function() {
   return (this.generalPurposeBitFlag & 0x1) !== 0;
@@ -602,7 +663,7 @@ Entry.prototype.isCompressed = function() {
 function LocalFileHeader() {
 }
 
-function dosDateTimeToDate(date, time) {
+function dosDateTimeToDate(date, time, timezone) {
   var day = date & 0x1f; // 1-31
   var month = (date >> 5 & 0xf) - 1; // 1-12, 0-11
   var year = (date >> 9 & 0x7f) + 1980; // 0-128, 1980-2108
@@ -612,7 +673,13 @@ function dosDateTimeToDate(date, time) {
   var minute = time >> 5 & 0x3f; // 0-59
   var hour = time >> 11 & 0x1f; // 0-23
 
-  return new Date(year, month, day, hour, minute, second, millisecond);
+  if (timezone == null || timezone === "local") {
+    return new Date(year, month, day, hour, minute, second, millisecond);
+  } else if (timezone === "UTC") {
+    return new Date(Date.UTC(year, month, day, hour, minute, second, millisecond));
+  } else {
+    throw new Error("unrecognized options.timezone: " + options.timezone);
+  }
 }
 
 function getFileNameLowLevel(generalPurposeBitFlag, fileNameBuffer, extraFields, strictFileNames) {
@@ -843,9 +910,11 @@ function decodeBuffer(buffer, isUtf8) {
 }
 
 function readUInt64LE(buffer, offset) {
-  // there is no native function for this, because we can't actually store 64-bit integers precisely.
+  // There is no native function for this, because we can't actually store 64-bit integers precisely.
   // after 53 bits, JavaScript's Number type (IEEE 754 double) can't store individual integers anymore.
   // but since 53 bits is a whole lot more than 32 bits, we do our best anyway.
+  // As of 2020, Node has added support for BigInt, which obviates this whole function,
+  // but yauzl hasn't been updated to depend on BigInt (yet?).
   var lower32 = buffer.readUInt32LE(offset);
   var upper32 = buffer.readUInt32LE(offset + 4);
   // we can't use bitshifting here, because JavaScript bitshifting only works on 32-bit integers.

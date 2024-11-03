@@ -147,26 +147,14 @@ See `open()` for the meaning of the options and callback.
 
 ### dosDateTimeToDate(date, time)
 
-Converts MS-DOS `date` and `time` data into a JavaScript `Date` object.
-Each parameter is a `Number` treated as an unsigned 16-bit integer.
-Note that this format does not support timezones.
-The returned `Date` object will be constructed using the local timezone.
+*Deprecated*. Since yauzl 3.2.0, it is highly recommended to call [`entry.getLastModDate()`](#getlastmoddateoptions)
+instead of this function due to enhanced support for reading third-party extra fields.
+If you ever have a use case for calling this function directly please
+[open an issue against yauzl](https://github.com/thejoshwolfe/yauzl/issues/new)
+requesting that this function be properly supported again.
 
-In order to interpret the parameters in UTC time instead of local time, you can convert with the following snippet:
-
-```js
-var timestampInterpretedAsLocal = yauzl.dosDateTimeToDate(date, time); // or entry.getLastModDate()
-var timestampInterpretedAsUTCInstead = new Date(
-    timestampInterpretedAsLocal.getTime() -
-    timestampInterpretedAsLocal.getTimezoneOffset() * 60 * 1000
-);
-```
-
-Note that there is an ECMAScript proposal to add better timezone support to JavaScript called the `Temporal` API.
-Last I checked, it is at stage 3. https://github.com/tc39/proposal-temporal
-
-Once that new API is available and stable, better timezone handling should be possible here somehow.
-Feel free to open a feature request against this library when the time comes.
+This function only remains exported in order to maintain compatibility with older version of yauzl.
+It will be removed in yauzl 4.0.0 unless someone asks for it to remain supported.
 
 ### getFileNameLowLevel(generalPurposeBitFlag, fileNameBuffer, extraFields, strictFileNames)
 
@@ -437,8 +425,8 @@ These fields are of type `Number`:
  * `versionNeededToExtract`
  * `generalPurposeBitFlag`
  * `compressionMethod`
- * `lastModFileTime` (MS-DOS format, see [`getLastModDate()`](#getlastmoddate))
- * `lastModFileDate` (MS-DOS format, see [`getLastModDate()`](#getlastmoddate))
+ * `lastModFileTime` (MS-DOS format, see [`getLastModDate()`](#getlastmoddateoptions))
+ * `lastModFileDate` (MS-DOS format, see [`getLastModDate()`](#getlastmoddateoptions))
  * `crc32`
  * `compressedSize`
  * `uncompressedSize`
@@ -507,13 +495,45 @@ Prior to yauzl version 2.7.0, this field was erroneously documented as `comment`
 For compatibility with any code that uses the field name `comment`,
 yauzl creates an alias field named `comment` which is identical to `fileComment`.
 
-#### getLastModDate()
+#### getLastModDate([options])
 
-Effectively implemented as the following. See [`dosDateTimeToDate()`](#dosdatetimetodatedate-time).
+Returns the modification time of the file as a JavaScript `Date` object.
+The timezone situation is a mess; read on to learn more.
+
+Due to the zip file specification having lackluster support for specifying timestamps natively,
+there are several third-party extensions that add better support.
+yauzl supports these encodings:
+
+1. InfoZIP "universal timestamp" extended field (`0x5455` aka `"UT"`): signed 32-bit seconds since `1970-01-01 00:00:00Z`, which supports the years 1901-2038 (partially inclusive) with 1-second precision. The value is timezone agnostic, i.e. always UTC.
+2. NTFS extended field (`0x000a`): 64-bit signed 100-nanoseconds since `1601-01-01 00:00:00Z`, which supports the approximate years 20,000BCE-20,000CE with precision rounded to 1-millisecond (due to the JavaScript `Date` type). The value is timezone agnostic, i.e. always UTC.
+3. DOS `lastModFileDate` and `lastModFileTime`: supports the years 1980-2108 (inclusive) with 2-second precision. Timezone is interpreted either as the local timezone or UTC depending on the `timezone` option documented below.
+
+If both the InfoZIP "universal timestamp" and NTFS extended fields are found, yauzl uses one of them, but which one is unspecified.
+If neither are found, yauzl falls back to the built-in DOS `lastModFileDate` and `lastModFileTime`.
+Every possible bit pattern of every encoding can be represented by a JavaScript `Date` object,
+meaning this function cannot fail (barring parameter validation), and will never return an `Invalid Date` object.
+
+`options` may be omitted or `null`, and has the following defaults:
 
 ```js
-return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime);
+{
+  timezone: "local", // or "UTC"
+  forceDosFormat: false,
+}
 ```
+
+Set `forceDosFormat` to `true` (and do not set `timezone`) to enable pre-yauzl 3.2.0 behavior
+where the InfoZIP "universal timestamp" and NTFS extended fields are ignored.
+
+The `timezone` option is only used in the DOS fallback.
+If `timezone` is omitted, `null` or `"local"`, the `lastModFileDate` and `lastModFileTime` are interpreted in the system's current timezone (using `new Date(year, ...)`).
+If `timezone` is `"UTC"`, the interpretation is in UTC+00:00 (using `new Date(Date.UTC(year, ...))`).
+
+The JavaScript `Date` object, has several inherent limitations surrounding timezones.
+There is an ECMAScript proposal to add better timezone support to JavaScript called the `Temporal` API.
+Last I checked, it was at stage 3. https://github.com/tc39/proposal-temporal
+Once that new API is available and stable, better timezone handling should be possible here somehow.
+If you notice that the new API has become widely available, please open a feature request against this library to add support for it.
 
 #### isEncrypted()
 
