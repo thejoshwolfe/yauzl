@@ -153,7 +153,7 @@ If you ever have a use case for calling this function directly please
 [open an issue against yauzl](https://github.com/thejoshwolfe/yauzl/issues/new)
 requesting that this function be properly supported again.
 
-This function only remains exported in order to maintain compatibility with older version of yauzl.
+This function only remains exported in order to maintain compatibility with older versions of yauzl.
 It will be removed in yauzl 4.0.0 unless someone asks for it to remain supported.
 
 ### getFileNameLowLevel(generalPurposeBitFlag, fileNameBuffer, extraFields, strictFileNames)
@@ -344,7 +344,7 @@ and this function gives the corresponding redundant data in a Local File Header.
 }
 ```
 
-If `minimal` is `false` (or omitted or `null`), the callback receives a full `LocalFileHeader`.
+If `minimal` is `false` (or omitted or `null`), the callback receives a full [`LocalFileHeader`](#class-localfileheader).
 If `minimal` is `true`, the callback receives an object with a single property and no prototype `{fileDataStart: fileDataStart}`.
 For typical zipfile reading usecases, this field is the only one you need,
 and yauzl internally effectively uses the `{minimal: true}` option as part of `openReadStream()`.
@@ -481,8 +481,7 @@ the file name in this field is stored in the `fileName` property,
 and the file name in the central directory record for this entry is ignored.
 Note that when `decodeStrings` is false, all Info-ZIP Unicode Path Extra Fields are ignored.
 
-None of the other fields are considered significant by this library.
-Fields that this library reads are left unaltered in the `extraFields` array.
+See also [`getLastModDate()`](#getlastmoddateoptions) for additional extra fields that are recognized by this library.
 
 #### fileComment
 
