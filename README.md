@@ -503,11 +503,11 @@ Due to the zip file specification having lackluster support for specifying times
 there are several third-party extensions that add better support.
 yauzl supports these encodings:
 
-1. InfoZIP "universal timestamp" extended field (`0x5455` aka `"UT"`): signed 32-bit seconds since `1970-01-01 00:00:00Z`, which supports the years 1901-2038 (partially inclusive) with 1-second precision. The value is timezone agnostic, i.e. always UTC.
+1. Info-ZIP "universal timestamp" extended field (`0x5455` aka `"UT"`): signed 32-bit seconds since `1970-01-01 00:00:00Z`, which supports the years 1901-2038 (partially inclusive) with 1-second precision. The value is timezone agnostic, i.e. always UTC.
 2. NTFS extended field (`0x000a`): 64-bit signed 100-nanoseconds since `1601-01-01 00:00:00Z`, which supports the approximate years 20,000BCE-20,000CE with precision rounded to 1-millisecond (due to the JavaScript `Date` type). The value is timezone agnostic, i.e. always UTC.
 3. DOS `lastModFileDate` and `lastModFileTime`: supports the years 1980-2108 (inclusive) with 2-second precision. Timezone is interpreted either as the local timezone or UTC depending on the `timezone` option documented below.
 
-If both the InfoZIP "universal timestamp" and NTFS extended fields are found, yauzl uses one of them, but which one is unspecified.
+If both the Info-ZIP "universal timestamp" and NTFS extended fields are found, yauzl uses one of them, but which one is unspecified.
 If neither are found, yauzl falls back to the built-in DOS `lastModFileDate` and `lastModFileTime`.
 Every possible bit pattern of every encoding can be represented by a JavaScript `Date` object,
 meaning this function cannot fail (barring parameter validation), and will never return an `Invalid Date` object.
@@ -522,7 +522,7 @@ meaning this function cannot fail (barring parameter validation), and will never
 ```
 
 Set `forceDosFormat` to `true` (and do not set `timezone`) to enable pre-yauzl 3.2.0 behavior
-where the InfoZIP "universal timestamp" and NTFS extended fields are ignored.
+where the Info-ZIP "universal timestamp" and NTFS extended fields are ignored.
 
 The `timezone` option is only used in the DOS fallback.
 If `timezone` is omitted, `null` or `"local"`, the `lastModFileDate` and `lastModFileTime` are interpreted in the system's current timezone (using `new Date(year, ...)`).
@@ -783,7 +783,7 @@ The zip file specification has several ambiguities inherent in its design. Yikes
 ## Change History
 
  * 3.2.0
-   * Added support for reading third-party extensions for timestamps: InfoZIP "universal timestamp" extra field and NTFS extra field. [pull #160](https://github.com/thejoshwolfe/yauzl/pull/160)
+   * Added support for reading third-party extensions for timestamps: Info-ZIP "universal timestamp" extra field and NTFS extra field. [pull #160](https://github.com/thejoshwolfe/yauzl/pull/160)
    * `entry.getLastModDate()` takes options `forceDosFormat` to revert the above change, and `timezone` to allow UTC interpretation of DOS timestamps.
    * Documented `dosDateTimeToDate()` as now deprecated.
  * 3.1.3

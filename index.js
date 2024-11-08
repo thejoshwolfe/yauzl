@@ -597,8 +597,8 @@ Entry.prototype.getLastModDate = function(options) {
     for (var i = 0; i < this.extraFields.length; i++) {
       var extraField = this.extraFields[i];
       if (extraField.id === 0x5455) {
-        // InfoZIP "universal timestamp" extended field (`0x5455` aka `"UT"`).
-        // See the InfoZIP source code unix/unix.c:set_extra_field() and zipfile.c:ef_scan_ut_time().
+        // Info-ZIP "universal timestamp" extended field (`0x5455` aka `"UT"`).
+        // See the Info-ZIP source code unix/unix.c:set_extra_field() and zipfile.c:ef_scan_ut_time().
         var data = extraField.data;
         if (data.length < 5) continue; // Too short.
         // The flags define which of the three fields are present: mtime, atime, ctime.
