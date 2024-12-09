@@ -237,6 +237,8 @@ listZipFiles([path.join(__dirname, "failure")]).forEach(function(zipfilePath) {
       }
       function checkErrorMessage(err) {
         var actualMessage = err.message.replace(/[^0-9A-Za-z-]+/g, " ").trimRight();
+        // eCryptfs limits file names to 143 bytes. (All file names are ascii.)
+        actualMessage = actualMessage.slice(0, 143 - ".zip".length);
         if (actualMessage !== expectedErrorMessage) {
           if (i !== 0) {
             // The error messages are tuned for the common case.
