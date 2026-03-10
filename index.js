@@ -614,39 +614,27 @@ Entry.prototype.getLastModDate = function(options) {
         var posixTimestamp = data.readInt32LE(1);
         return new Date(posixTimestamp * 1000);
       } else if (extraField.id === 0x000a) {
-        // NTFS
         var data = extraField.data;
+        if (data.length !== 32) continue; // The length is always the same.
         // 4 bytes reserved
-        var cursor = 4;
-        while (cursor < data.length + 4) {
-          // 2 bytes Tag
-          var tag = data.readUInt16LE(cursor);
-          cursor += 2;
-          // 2 bytes Size
-          var size = data.readUInt16LE(cursor);
-          cursor += 2;
-          if (tag !== 1) {
-            // Wrong tag. This will realistically never happen.
-            cursor += size;
-            continue;
-          }
-          // Tag1 is actually the only defined Tag.
-          if (size < 8 || cursor + size > data.length) break; // Invalid. Ignore.
-          // 8 bytes Mtime
-          var hundredNanoSecondsSince1601 = 4294967296 * data.readInt32LE(cursor + 4) + data.readUInt32LE(cursor)
-          // Convert from NTFS to POSIX milliseconds.
-          // The big number below is the milliseconds between year 1601 and year 1970
-          // (i.e. the negative POSIX timestamp of 1601-01-01 00:00:00Z)
-          var millisecondsSince1970 = hundredNanoSecondsSince1601 / 10000 - 11644473600000;
-          // Note on numeric precision: JavaScript Number objects lose precision above Number.MAX_SAFE_INTEGER,
-          // and NTFS timestamps are typically much bigger than that limit.
-          // (MAX_SAFE_INTEGER would represent 1629-07-17T23:58:45.475Z.)
-          // However, we're losing precision in the conversion from 100nanosecond units to millisecond units anyway,
-          // and the time at which we also lose 1-millisecond precision is just past the JavaScript Date limit (by design).
-          // Up through the year 2057, this conversion only drops 4 bits of precision,
-          // which is well under the 13-14 bits ratio between the milliseconds and 100nanoseconds.
-          return new Date(millisecondsSince1970);
-        }
+        // 2 bytes Tag
+        if (data.readUInt16LE(4) !== 1) continue; // Tag1 is actually the only defined Tag.
+        // 2 bytes Size
+        if (data.readUInt16LE(6) !== 24) continue; // Size is always 24.
+        // 8 bytes Mtime
+        var hundredNanoSecondsSince1601 = data.readUInt32LE(8) + 4294967296 * data.readInt32LE(12);
+        // Convert from NTFS to POSIX milliseconds.
+        // The big number below is the milliseconds between year 1601 and year 1970
+        // (i.e. the negative POSIX timestamp of 1601-01-01 00:00:00Z)
+        var millisecondsSince1970 = hundredNanoSecondsSince1601 / 10000 - 11644473600000;
+        // Note on numeric precision: JavaScript Number objects lose precision above Number.MAX_SAFE_INTEGER,
+        // and NTFS timestamps are typically much bigger than that limit.
+        // (MAX_SAFE_INTEGER would represent 1629-07-17T23:58:45.475Z.)
+        // However, we're losing precision in the conversion from 100nanosecond units to millisecond units anyway,
+        // and the time at which we also lose 1-millisecond precision is year 275760, the JavaScript Date limit (by design).
+        // Up through the year 2057, this conversion only drops 4 bits of precision,
+        // which is well under the 13-14 bits ratio between the milliseconds and 100nanoseconds.
+        return new Date(millisecondsSince1970);
       }
     }
   }
