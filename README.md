@@ -782,6 +782,8 @@ The zip file specification has several ambiguities inherent in its design. Yikes
 
 ## Change History
 
+ * 3.2.1
+   * Fix crash when reading certain corrupted NTFS timestamp extra fields. Thanks to CodeAnt AI Code Reviewer ( https://www.codeant.ai/ai-code-review ) for finding the bug.
  * 3.2.0
    * Added support for reading third-party extensions for timestamps: Info-ZIP "universal timestamp" extra field and NTFS extra field. [pull #160](https://github.com/thejoshwolfe/yauzl/pull/160)
    * `entry.getLastModDate()` takes options `forceDosFormat` to revert the above change, and `timezone` to allow UTC interpretation of DOS timestamps.
