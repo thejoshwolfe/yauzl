@@ -7,6 +7,7 @@ var Writable = stream.Writable;
 var PassThrough = stream.PassThrough;
 var Pend = require('pend');
 var EventEmitter = require('events').EventEmitter;
+var setImmediate = require("timers").setImmediate;
 
 exports.createFromBuffer = createFromBuffer;
 exports.createFromFd = createFromFd;

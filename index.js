@@ -7,6 +7,7 @@ var EventEmitter = require("events").EventEmitter;
 var Transform = require("stream").Transform;
 var PassThrough = require("stream").PassThrough;
 var Writable = require("stream").Writable;
+var setImmediate = require("timers").setImmediate;
 
 exports.open = open;
 exports.fromFd = fromFd;

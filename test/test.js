@@ -9,6 +9,8 @@ var child_process = require("child_process");
 var Readable = require("stream").Readable;
 var Writable = require("stream").Writable;
 
+globalThis.setImmediate = undefined; // simulate systems without setImmediate
+
 // This is a month before I made the example zip files and their content files,
 // so this timestamp will be earlier than all the ones stored in these test zip files unless otherwise noted.
 var earliestTimestamp = new Date(2014, 7, 18, 0, 0, 0, 0);
