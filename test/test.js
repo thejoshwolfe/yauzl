@@ -134,12 +134,21 @@ listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry
                   throw new Error("expected traditional encryption and compression in the traditional encryption and compression test case");
                 }
               }
-              if (isEncrypted) {
-                zipfile.openReadStream(entry, {
-                  decrypt: false,
-                  decompress: isCompressed ? false : null,
-                }, onReadStream);
+              if (/traditional-encryption/.test(zipfilePath)) {
+                if (/deprecated/.test(zipfilePath)) {
+                  // Deprecated style.
+                  zipfile.openReadStream(entry, {
+                    decrypt: false,
+                    decompress: isCompressed ? false : null,
+                  }, onReadStream);
+                } else {
+                  // New style.
+                  zipfile.openReadStream(entry, {
+                    decodeFileData: false,
+                  }, onReadStream);
+                }
               } else {
+                if (!entry.canDecodeFileData()) throw new Error(messagePrefix + "supposed to be able to decode this");
                 zipfile.openReadStream(entry, onReadStream);
               }
               function onReadStream(err, readStream) {
@@ -159,6 +168,7 @@ listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry
                   zipfile.readEntry();
                 });
                 readStream.on("error", function(err) {
+                  console.log(testId + "fail:");
                   throw err;
                 });
               }

@@ -400,30 +400,34 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
   if (options == null) {
     options = {};
   } else {
-    // validate options that the caller has no excuse to get wrong
-    if (options.decrypt != null) {
-      if (!entry.isEncrypted()) {
-        throw new Error("options.decrypt can only be specified for encrypted entries");
+    if (options.decodeFileData === false) {
+      // new, simple option
+      if (options.decrypt != null) {
+        throw new Error("cannot use options.decrypt when options.decodeFileData === false");
       }
-      if (options.decrypt !== false) throw new Error("invalid options.decrypt value: " + options.decrypt);
-      if (entry.isCompressed()) {
-        if (options.decompress !== false) throw new Error("entry is encrypted and compressed, and options.decompress !== false");
+      if (options.decompress != null) {
+        throw new Error("cannot use options.decompress when options.decodeFileData === false");
       }
-    }
-    if (options.decompress != null) {
-      if (!entry.isCompressed()) {
-        throw new Error("options.decompress can only be specified for compressed entries");
+      // start and end are allowed
+    } else {
+      // old, complicated options
+      if (options.decrypt != null) {
+        if (!entry.isEncrypted()) {
+          throw new Error("options.decrypt can only be specified for encrypted entries. See also option decodeFileData.");
+        }
+        if (options.decrypt !== false) throw new Error("invalid options.decrypt value: " + options.decrypt);
+        if (entry.isCompressed()) {
+          if (options.decompress !== false) throw new Error("entry is encrypted and compressed, and options.decompress !== false. See also option decodeFileData.");
+        }
       }
-      if (!(options.decompress === false || options.decompress === true)) {
-        throw new Error("invalid options.decompress value: " + options.decompress);
-      }
-    }
-    if (options.start != null || options.end != null) {
-      if (entry.isCompressed() && options.decompress !== false) {
-        throw new Error("start/end range not allowed for compressed entry without options.decompress === false");
-      }
-      if (entry.isEncrypted() && options.decrypt !== false) {
-        throw new Error("start/end range not allowed for encrypted entry without options.decrypt === false");
+      if (options.decompress != null) {
+        if (!entry.isCompressed()) {
+          throw new Error("options.decompress can only be specified for compressed entries. See also option decodeFileData.");
+        }
+        if (!(options.decompress === false || options.decompress === true)) {
+          throw new Error("invalid options.decompress value: " + options.decompress);
+        }
+        decompress = options.decompress;
       }
     }
     if (options.start != null) {
@@ -438,20 +442,35 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
       if (relativeEnd < relativeStart) throw new Error("options.end < options.start");
     }
   }
+  var rawMode = (
+    options.decodeFileData === false || // Explicitly requested raw.
+    (
+      (entry.compressionMethod === 0 || // Naturally without compression.
+        (entry.compressionMethod === 8 && options.decompress === false) // Deprecated compression bypass option.
+      ) &&
+      (!entry.isEncrypted() || // Naturally without encryption.
+        options.decrypt === false // Deprecated encryption bypass option.
+      )
+    )
+  );
+  if (options.start != null || options.end != null) {
+    // Ensure slicing deals with raw data.
+    if (!rawMode) throw new Error("start/end range require options.decodeFileData === false for non-trivial encoded entries.");
+  }
+
   // any further errors can either be caused by the zipfile,
   // or were introduced in a minor version of yauzl,
   // so should be passed to the client rather than thrown.
   if (!self.isOpen) return callback(new Error("closed"));
-  if (entry.isEncrypted()) {
-    if (options.decrypt !== false) return callback(new Error("entry is encrypted, and options.decrypt !== false"));
+  if (entry.isEncrypted() && !rawMode) {
+    if (options.decrypt !== false) return callback(new Error("entry is encrypted, and options.decodeFileData !== false"));
   }
   var decompress;
-  if (entry.compressionMethod === 0) {
-    // 0 - The file is stored (no compression)
+  if (rawMode) {
     decompress = false;
   } else if (entry.compressionMethod === 8) {
     // 8 - The file is Deflated
-    decompress = options.decompress != null ? options.decompress : true;
+    decompress = options.decodeFileData !== true;
   } else {
     return callback(new Error("unsupported compression method: " + entry.compressionMethod));
   }
@@ -641,6 +660,13 @@ Entry.prototype.getLastModDate = function(options) {
 
   // Fallback to non-extended encoding.
   return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime, options.timezone);
+};
+
+Entry.prototype.canDecodeFileData = function() {
+  return (
+    !this.isEncrypted() &&
+    (this.compressionMethod === 0 || this.compressionMethod === 8)
+  );
 };
 Entry.prototype.isEncrypted = function() {
   return (this.generalPurposeBitFlag & 0x1) !== 0;

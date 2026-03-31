@@ -268,42 +268,32 @@ If this zipfile is already closed (see `close()`), the `callback` will receive a
 
 ```js
 {
-  decompress: entry.isCompressed() ? true : null,
-  decrypt: null,
+  decodeFileData: true,
   start: 0,                  // actually the default is null, see below
   end: entry.compressedSize, // actually the default is null, see below
+  decompress: null, // deprecated
+  decrypt: null,    // deprecated
 }
 ```
 
-If the entry is compressed (with a supported compression method),
-and the `decompress` option is `true` (or omitted),
-the read stream provides the decompressed data.
-Omitting the `decompress` option is what most clients should do.
+When `decodeFileData` is `true` (or `null` or omitted), yauzl will attempt to decode the file data using a zlib inflate transform when appropriate.
+Setting `decodeFileData` to `false` will provide the bytes of the entry's contents exactly as-is in the archive.
+When `compressionMethod` is `0` (stored with no compression) and the entry is not encrypted, `decodeFileData` has no effect.
 
-The `decompress` option must be `null` (or omitted) when the entry is not compressed (see `isCompressed()`),
-and either `true` (or omitted) or `false` when the entry is compressed.
-Specifying `decompress: false` for a compressed entry causes the read stream
-to provide the raw compressed file data without going through a zlib inflate transform.
-
-If the entry is encrypted (see `isEncrypted()`), clients may want to avoid calling `openReadStream()` on the entry entirely.
-Alternatively, clients may call `openReadStream()` for encrypted entries and specify `decrypt: false`.
-If the entry is also compressed, clients must *also* specify `decompress: false`.
-Specifying `decrypt: false` for an encrypted entry causes the read stream to provide the raw, still-encrypted file data.
-(This data includes the 12-byte header described in the spec.)
-
-The `decrypt` option must be `null` (or omitted) for non-encrypted entries, and `false` for encrypted entries.
-Omitting the `decrypt` option (or specifying it as `null`) for an encrypted entry
-will result in the `callback` receiving an `err`.
-This default behavior is so that clients not accounting for encrypted files aren't surprised by bogus file data.
+If `canDecodeFileData()` returns `false`, then `decodeFileData` must be set to `false`, or else `callback` will receive an error.
+It is up to the caller to make sense of any file data with encryption and/or an uncommon compression method.
 
 The `start` (inclusive) and `end` (exclusive) options are byte offsets into this entry's file data,
 and can be used to obtain part of an entry's file data rather than the whole thing.
-If either of these options are specified and non-`null`,
-then the above options must be used to obain the file's raw data.
-Specifying `{start: 0, end: entry.compressedSize}` will result in the complete file,
-which is effectively the default values for these options,
-but note that unlike omitting the options, when you specify `start` or `end` as any non-`null` value,
-the above requirement is still enforced that you must also pass the appropriate options to get the file's raw data.
+When specifying `start` and/or `end`, it is recommended to unconditionally set `decodeFileData` to `false`.
+If either `start` and/or `end` are specified and non-`null`, then either `decodeFileData` must be set to `false`,
+or both `isEncrypted()` must return `false` and `compressionMethod` must be `0`.
+Specifying `{start: 0, end: entry.compressedSize}` will result in the complete file.
+
+For compatibility with versions of yauzl prior to 3.3.x, `start` and `end` can also be used
+when the deprecated `decompress` and `decrypt` options are used appropriately.
+This is no longer documented, but an archive of the documentation can be found here:
+https://github.com/thejoshwolfe/yauzl/blob/c4695215b05c6adffda613b9051a2a85429b33fe/README.md#openreadstreamentry-options-callback
 
 It's possible for the `readStream` provided to the `callback` to emit errors for several reasons.
 For example, if zlib cannot decompress the data, the zlib error will be emitted from the `readStream`.
@@ -395,7 +385,7 @@ If `close()` is never called, then the zipfile is "kept open".
 For zipfiles created with `fromFd()`, this will leave the `fd` open, which may be desirable.
 For zipfiles created with `open()`, this will leave the underlying `fd` open, thereby "leaking" it, which is probably undesirable.
 For zipfiles created with `fromRandomAccessReader()`, the reader's `close()` method will never be called.
-For zipfiles created with `fromBuffer()`, the `close()` function has no effect whether called or not.
+For zipfiles created with `fromBuffer()`, the `close()` function has no effect on resource usage.
 
 Regardless of how this `ZipFile` was created, there are no resources other than those listed above that require cleanup from this function.
 This means it may be desirable to never call `close()` in some usecases.
@@ -497,10 +487,10 @@ yauzl creates an alias field named `comment` which is identical to `fileComment`
 #### getLastModDate([options])
 
 Returns the modification time of the file as a JavaScript `Date` object.
-The timezone situation is a mess; read on to learn more.
+The timezone situation is a mess due to both ZIP issues and JavaScript issues; read on to learn more.
 
 Due to the zip file specification having lackluster support for specifying timestamps natively,
-there are several third-party extensions that add better support.
+there are several third-party extensions that add better support in the `extraFields`.
 yauzl supports these encodings:
 
 1. Info-ZIP "universal timestamp" extended field (`0x5455` aka `"UT"`): signed 32-bit seconds since `1970-01-01 00:00:00Z`, which supports the years 1901-2038 (partially inclusive) with 1-second precision. The value is timezone agnostic, i.e. always UTC.
@@ -525,37 +515,37 @@ Set `forceDosFormat` to `true` (and do not set `timezone`) to enable pre-yauzl 3
 where the Info-ZIP "universal timestamp" and NTFS extended fields are ignored.
 
 The `timezone` option is only used in the DOS fallback.
-If `timezone` is omitted, `null` or `"local"`, the `lastModFileDate` and `lastModFileTime` are interpreted in the system's current timezone (using `new Date(year, ...)`).
+If `timezone` is `"local"` (or omitted or `null`), the `lastModFileDate` and `lastModFileTime` are interpreted in the system's current timezone (using `new Date(year, ...)`).
 If `timezone` is `"UTC"`, the interpretation is in UTC+00:00 (using `new Date(Date.UTC(year, ...))`).
 
 The JavaScript `Date` object, has several inherent limitations surrounding timezones.
 There is an ECMAScript proposal to add better timezone support to JavaScript called the `Temporal` API.
-Last I checked, it was at stage 3. https://github.com/tc39/proposal-temporal
+Last I checked, it was at stage 4. https://github.com/tc39/proposal-temporal
 Once that new API is available and stable, better timezone handling should be possible here somehow.
 If you notice that the new API has become widely available, please open a feature request against this library to add support for it.
 
+#### canDecodeFileData()
+
+Returns `true` if and only if the metadata for this entry specifies an encoding that yauzl can automatically decode as part of `openReadStream()`.
+This considers compression method and encryption.
+Only compression methods `0` (stored with no compression) and `8` (deflated) are supported,
+and neither traditional encryption nor strong encryption is supported.
+
+See also `openReadStream()`.
+
 #### isEncrypted()
-
-Returns is this entry encrypted with "Traditional Encryption".
-Effectively implemented as:
-
-```js
-return (this.generalPurposeBitFlag & 0x1) !== 0;
-```
-
-See `openReadStream()` for the implications of this value.
 
 Note that "Strong Encryption" is not supported, and will result in an `"error"` event emitted from the `ZipFile`.
 
+This method is effectively implemented as `return (this.generalPurposeBitFlag & 0x1) !== 0`.
+yauzl provides no functionality to decrypt file data.
+
 #### isCompressed()
 
-Effectively implemented as:
-
-```js
-return this.compressionMethod === 8;
-```
-
-See `openReadStream()` for the implications of this value.
+*DEPRECATED*: use `canDecodeFileData()` instead, and/or manually check `compressionMethod`.
+This method is effectively implemented as `return this.compressionMethod === 8`,
+which misleadingly returns `false` for entries that are compressed using a compression method other than `8`.
+This implementation is maintained for backward compatibility with yauzl versions prior to 3.3.x.
 
 ### Class: LocalFileHeader
 
@@ -725,9 +715,9 @@ By extension the following zip file fields are ignored by this library and not p
 
 ### Limited Encryption Handling
 
-You can detect when a file entry is encrypted with "Traditional Encryption" via `isEncrypted()`,
+You can detect when a file entry is encrypted with "Traditional Encryption" via `generalPurposeBitFlag`,
 but yauzl will not help you decrypt it.
-See `openReadStream()`.
+See the `openReadStream()` option `decodeFileData`.
 
 If a zip file contains file entries encrypted with "Strong Encryption", yauzl emits an error.
 
@@ -782,6 +772,8 @@ The zip file specification has several ambiguities inherent in its design. Yikes
 
 ## Change History
 
+ * 3.3.0
+   * Added `entry.canDecodeFileData()` and option `decodeFileData` for `entry.openReadStream()`, and marked as deprecated `isCompressed()` and options `decompress` and `decrypt`. [issue #80](https://github.com/thejoshwolfe/yauzl/issues/80) [pull #81](https://github.com/thejoshwolfe/yauzl/pull/81) [pull #82](https://github.com/thejoshwolfe/yauzl/pull/82) [issue #166](https://github.com/thejoshwolfe/yauzl/issues/166)
  * 3.2.1
    * Fix crash when reading certain corrupted NTFS timestamp extra fields. Thanks to CodeAnt AI Code Reviewer ( https://www.codeant.ai/ai-code-review ) for finding the bug.
  * 3.2.0
