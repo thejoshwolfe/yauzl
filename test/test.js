@@ -135,6 +135,7 @@ listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry
                 }
               }
               if (/traditional-encryption/.test(zipfilePath)) {
+                if (entry.canDecodeFileData()) throw new Error(messagePrefix + "supposed to be unable to decode this");
                 if (/deprecated/.test(zipfilePath)) {
                   // Deprecated style.
                   zipfile.openReadStream(entry, {
@@ -147,6 +148,11 @@ listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry
                     decodeFileData: false,
                   }, onReadStream);
                 }
+              } else if (/bogus-compression-method/.test(zipfilePath)) {
+                if (entry.canDecodeFileData()) throw new Error(messagePrefix + "supposed to be unable to decode this");
+                  zipfile.openReadStream(entry, {
+                    decodeFileData: false,
+                  }, onReadStream);
               } else {
                 if (!entry.canDecodeFileData()) throw new Error(messagePrefix + "supposed to be able to decode this");
                 zipfile.openReadStream(entry, onReadStream);
@@ -429,11 +435,11 @@ pend.go(function(cb) {
       }
 
       // Handle special cases.
-      if (f === "dump.js" && /traditional-encryption/.exec(path.basename(arg))) {
+      if (f === "dump.js" && /traditional-encryption|bogus-compression-method/.exec(path.basename(arg))) {
         args.push("--no-contents");
       }
       if (f === "unzip.js") {
-        if (/traditional-encryption/.exec(path.basename(arg))) return; // Can't do these.
+        if (/traditional-encryption|bogus-compression-method/.exec(path.basename(arg))) return; // Can't do these.
         // Quaranetine this in a temp directory.
         fs.mkdirSync(tmpDir);
         options.cwd = tmpDir;
