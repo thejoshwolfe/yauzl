@@ -400,30 +400,34 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
   if (options == null) {
     options = {};
   } else {
-    // validate options that the caller has no excuse to get wrong
-    if (options.decrypt != null) {
-      if (!entry.isEncrypted()) {
-        throw new Error("options.decrypt can only be specified for encrypted entries");
+    if (options.decodeFileData === false) {
+      // new, simple option
+      if (options.decrypt != null) {
+        throw new Error("cannot use options.decrypt when options.decodeFileData === false");
       }
-      if (options.decrypt !== false) throw new Error("invalid options.decrypt value: " + options.decrypt);
-      if (entry.isCompressed()) {
-        if (options.decompress !== false) throw new Error("entry is encrypted and compressed, and options.decompress !== false");
+      if (options.decompress != null) {
+        throw new Error("cannot use options.decompress when options.decodeFileData === false");
       }
-    }
-    if (options.decompress != null) {
-      if (!entry.isCompressed()) {
-        throw new Error("options.decompress can only be specified for compressed entries");
+      // start and end are allowed
+    } else {
+      // old, complicated options
+      if (options.decrypt != null) {
+        if (!entry.isEncrypted()) {
+          throw new Error("options.decrypt can only be specified for encrypted entries. See also option decodeFileData.");
+        }
+        if (options.decrypt !== false) throw new Error("invalid options.decrypt value: " + options.decrypt);
+        if (entry.isCompressed()) {
+          if (options.decompress !== false) throw new Error("entry is encrypted and compressed, and options.decompress !== false. See also option decodeFileData.");
+        }
       }
-      if (!(options.decompress === false || options.decompress === true)) {
-        throw new Error("invalid options.decompress value: " + options.decompress);
-      }
-    }
-    if (options.start != null || options.end != null) {
-      if (entry.isCompressed() && options.decompress !== false) {
-        throw new Error("start/end range not allowed for compressed entry without options.decompress === false");
-      }
-      if (entry.isEncrypted() && options.decrypt !== false) {
-        throw new Error("start/end range not allowed for encrypted entry without options.decrypt === false");
+      if (options.decompress != null) {
+        if (!entry.isCompressed()) {
+          throw new Error("options.decompress can only be specified for compressed entries. See also option decodeFileData.");
+        }
+        if (!(options.decompress === false || options.decompress === true)) {
+          throw new Error("invalid options.decompress value: " + options.decompress);
+        }
+        decompress = options.decompress;
       }
     }
     if (options.start != null) {
@@ -438,20 +442,35 @@ ZipFile.prototype.openReadStream = function(entry, options, callback) {
       if (relativeEnd < relativeStart) throw new Error("options.end < options.start");
     }
   }
+  var rawMode = (
+    options.decodeFileData === false || // Explicitly requested raw.
+    (
+      (entry.compressionMethod === 0 || // Naturally without compression.
+        (entry.compressionMethod === 8 && options.decompress === false) // Deprecated compression bypass option.
+      ) &&
+      (!entry.isEncrypted() || // Naturally without encryption.
+        options.decrypt === false // Deprecated encryption bypass option.
+      )
+    )
+  );
+  if (options.start != null || options.end != null) {
+    // Ensure slicing deals with raw data.
+    if (!rawMode) throw new Error("start/end range require options.decodeFileData === false for non-trivial encoded entries.");
+  }
+
   // any further errors can either be caused by the zipfile,
   // or were introduced in a minor version of yauzl,
   // so should be passed to the client rather than thrown.
   if (!self.isOpen) return callback(new Error("closed"));
-  if (entry.isEncrypted()) {
-    if (options.decrypt !== false) return callback(new Error("entry is encrypted, and options.decrypt !== false"));
+  if (entry.isEncrypted() && !rawMode) {
+    if (options.decrypt !== false) return callback(new Error("entry is encrypted, and options.decodeFileData !== false"));
   }
   var decompress;
-  if (entry.compressionMethod === 0) {
-    // 0 - The file is stored (no compression)
+  if (rawMode) {
     decompress = false;
   } else if (entry.compressionMethod === 8) {
     // 8 - The file is Deflated
-    decompress = options.decompress != null ? options.decompress : true;
+    decompress = options.decodeFileData !== true;
   } else {
     return callback(new Error("unsupported compression method: " + entry.compressionMethod));
   }
@@ -615,43 +634,39 @@ Entry.prototype.getLastModDate = function(options) {
         return new Date(posixTimestamp * 1000);
       } else if (extraField.id === 0x000a) {
         var data = extraField.data;
+        if (data.length !== 32) continue; // The length is always the same.
         // 4 bytes reserved
-        var cursor = 4;
-        while (cursor < data.length + 4) {
-          // 2 bytes Tag
-          var tag = data.readUInt16LE(cursor);
-          cursor += 2;
-          // 2 bytes Size
-          var size = data.readUInt16LE(cursor);
-          cursor += 2;
-          if (tag !== 1) {
-            // Wrong tag. This will realistically never happen.
-            cursor += size;
-            continue;
-          }
-          // Tag1 is actually the only defined Tag.
-          if (size < 8 || cursor + size > data.length) break; // Invalid. Ignore.
-          // 8 bytes Mtime
-          var hundredNanoSecondsSince1601 = 4294967296 * data.readInt32LE(cursor + 4) + data.readUInt32LE(cursor)
-          // Convert from NTFS to POSIX milliseconds.
-          // The big number below is the milliseconds between year 1601 and year 1970
-          // (i.e. the negative POSIX timestamp of 1601-01-01 00:00:00Z)
-          var millisecondsSince1970 = hundredNanoSecondsSince1601 / 10000 - 11644473600000;
-          // Note on numeric precision: JavaScript Number objects lose precision above Number.MAX_SAFE_INTEGER,
-          // and NTFS timestamps are typically much bigger than that limit.
-          // (MAX_SAFE_INTEGER would represent 1629-07-17T23:58:45.475Z.)
-          // However, we're losing precision in the conversion from 100nanosecond units to millisecond units anyway,
-          // and the time at which we also lose 1-millisecond precision is just past the JavaScript Date limit (by design).
-          // Up through the year 2057, this conversion only drops 4 bits of precision,
-          // which is well under the 13-14 bits ratio between the milliseconds and 100nanoseconds.
-          return new Date(millisecondsSince1970);
-        }
+        // 2 bytes Tag
+        if (data.readUInt16LE(4) !== 1) continue; // Tag1 is actually the only defined Tag.
+        // 2 bytes Size
+        if (data.readUInt16LE(6) !== 24) continue; // Size is always 24.
+        // 8 bytes Mtime
+        var hundredNanoSecondsSince1601 = data.readUInt32LE(8) + 4294967296 * data.readInt32LE(12);
+        // Convert from NTFS to POSIX milliseconds.
+        // The big number below is the milliseconds between year 1601 and year 1970
+        // (i.e. the negative POSIX timestamp of 1601-01-01 00:00:00Z)
+        var millisecondsSince1970 = hundredNanoSecondsSince1601 / 10000 - 11644473600000;
+        // Note on numeric precision: JavaScript Number objects lose precision above Number.MAX_SAFE_INTEGER,
+        // and NTFS timestamps are typically much bigger than that limit.
+        // (MAX_SAFE_INTEGER would represent 1629-07-17T23:58:45.475Z.)
+        // However, we're losing precision in the conversion from 100nanosecond units to millisecond units anyway,
+        // and the time at which we also lose 1-millisecond precision is year 275760, the JavaScript Date limit (by design).
+        // Up through the year 2057, this conversion only drops 4 bits of precision,
+        // which is well under the 13-14 bits ratio between the milliseconds and 100nanoseconds.
+        return new Date(millisecondsSince1970);
       }
     }
   }
 
   // Fallback to non-extended encoding.
   return dosDateTimeToDate(this.lastModFileDate, this.lastModFileTime, options.timezone);
+};
+
+Entry.prototype.canDecodeFileData = function() {
+  return (
+    !this.isEncrypted() &&
+    (this.compressionMethod === 0 || this.compressionMethod === 8)
+  );
 };
 Entry.prototype.isEncrypted = function() {
   return (this.generalPurposeBitFlag & 0x1) !== 0;
