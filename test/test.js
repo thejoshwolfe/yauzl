@@ -341,6 +341,38 @@ pend.go(function(cb) {
   });
 });
 
+// openReadStream async iteration
+pend.go(function(cb) {
+  var prefix = "openReadStream async iteration: ";
+  yauzl.open(path.join(__dirname, "success/cygwin-info-zip.zip"), {lazyEntries: true}, function(err, zipfile) {
+    if (err) throw err;
+    zipfile.on("error", function(err) {
+      throw err;
+    });
+    zipfile.once("close", function() {
+      console.log(prefix + "pass");
+      cb();
+    });
+    zipfile.readEntry();
+    zipfile.once("entry", function(entry) {
+      if (entry.compressionMethod !== 0) throw new Error(prefix + "expected stored entry");
+      zipfile.openReadStream(entry, function(err, readStream) {
+        if (err) throw err;
+        (async function() {
+          var bytesSeen = 0;
+          for await (var chunk of readStream) {
+            bytesSeen += chunk.length;
+          }
+          if (bytesSeen !== entry.uncompressedSize) throw new Error(prefix + "expected " + entry.uncompressedSize + " bytes; got " + bytesSeen);
+          zipfile.close();
+        })().catch(function(err) {
+          throw err;
+        });
+      });
+    });
+  });
+});
+
 // abort open read stream
 pend.go(function(cb) {
   var prefix = "abort open read stream: ";
