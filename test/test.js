@@ -407,8 +407,8 @@ pend.go(function(cb) {
   var parametersToTest = {
     "compareCentralAndLocalHeaders.js": zipfiles,
     "dump.js": zipfiles,
-    "promises.js": [null],
     "unzip.js": zipfiles,
+    "forAwait.js": zipfiles,
   };
   if (JSON.stringify(fs.readdirSync(examplesDir).sort()) !== JSON.stringify(Object.keys(parametersToTest).sort())) throw new Error("unexpected examples/ directory listing");
   for (var f in parametersToTest) {
@@ -426,13 +426,8 @@ pend.go(function(cb) {
         stdio: ["ignore", "ignore", "inherit"],
         timeout: 10_000,
       };
-      var testId;
-      if (arg != null) {
-        args.push(path.resolve(arg));
-        testId = `examples/${f} ${path.basename(arg)}: `;
-      } else {
-        testId = `examples/${f}: `;
-      }
+      args.push(path.resolve(arg));
+      var testId = `examples/${f} ${path.basename(arg)}: `;
 
       // Handle special cases.
       if (f === "dump.js" && /traditional-encryption|bogus-compression-method/.exec(path.basename(arg))) {
@@ -443,6 +438,9 @@ pend.go(function(cb) {
         // Quaranetine this in a temp directory.
         fs.mkdirSync(tmpDir);
         options.cwd = tmpDir;
+      }
+      if (f === "forAwait.js") {
+        if (/traditional-encryption|bogus-compression-method/.exec(path.basename(arg))) return; // Can't do these.
       }
 
       process.stdout.write(testId);
