@@ -56,7 +56,7 @@ function fromFd(fd, options, callback) {
   if (callback == null) callback = defaultCallback;
   fs.fstat(fd, function(err, stats) {
     if (err) return callback(err);
-    var reader = fd_slicer.createFromFd(fd, {autoClose: true});
+    var reader = new fd_slicer.FdSlicer(fd);
     fromRandomAccessReader(reader, stats.size, options, callback);
   });
 }
@@ -72,8 +72,7 @@ function fromBuffer(buffer, options, callback) {
   if (options.decodeStrings == null) options.decodeStrings = true;
   if (options.validateEntrySizes == null) options.validateEntrySizes = true;
   if (options.strictFileNames == null) options.strictFileNames = false;
-  // limit the max chunk size. see https://github.com/thejoshwolfe/yauzl/issues/87
-  var reader = fd_slicer.createFromBuffer(buffer, {maxChunkSize: 0x10000});
+  var reader = new fd_slicer.BufferSlicer(buffer);
   fromRandomAccessReader(reader, buffer.length, options, callback);
 }
 
@@ -96,7 +95,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
   }
 
   // the matching unref() call is in zipfile.close()
-  reader.ref();
+  reader.ref("ZipFile");
 
   // eocdr means End of Central Directory Record.
   // search backwards for the eocdr signature.
@@ -222,7 +221,7 @@ function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, 
 ZipFile.prototype.close = function() {
   if (!this.isOpen) return;
   this.isOpen = false;
-  this.reader.unref();
+  this.reader.unref("ZipFile");
 };
 
 function emitErrorAndAutoClose(self, err) {
