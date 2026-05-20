@@ -93,6 +93,7 @@ ReadStream.prototype._read = function(n) {
   if (toRead <= 0) {
     console.log("artificial EOF");
     self.push(null);
+    this._cleanup();
     return;
   }
   self.context.pend.go(function(cb) {
@@ -103,6 +104,7 @@ ReadStream.prototype._read = function(n) {
       } else if (bytesRead === 0) {
         console.log("natural EOF");
         self.push(null);
+        this._cleanup();
       } else {
         self.pos += bytesRead;
         self.push(buffer.slice(0, bytesRead));
@@ -113,8 +115,16 @@ ReadStream.prototype._read = function(n) {
 };
 
 ReadStream.prototype._destroy = function(err, cb) {
-  this.context.unref(this.token);
+  // Node 14+ calls this automatically at EOF.
+  this._cleanup();
   cb(err);
+};
+
+ReadStream.prototype._cleanup = function() {
+  if (this.context != null) {
+    this.context.unref(this.token);
+    this.context = null;
+  }
 };
 
 util.inherits(BufferSlicer, EventEmitter);
