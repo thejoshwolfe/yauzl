@@ -56,7 +56,7 @@ function fromFd(fd, options, callback) {
   if (callback == null) callback = defaultCallback;
   fs.fstat(fd, function(err, stats) {
     if (err) return callback(err);
-    var reader = new fd_slicer.FdSlicer(fd);
+    var reader = fd_slicer.createFromFd(fd, {autoClose: true});
     fromRandomAccessReader(reader, stats.size, options, callback);
   });
 }
@@ -72,7 +72,8 @@ function fromBuffer(buffer, options, callback) {
   if (options.decodeStrings == null) options.decodeStrings = true;
   if (options.validateEntrySizes == null) options.validateEntrySizes = true;
   if (options.strictFileNames == null) options.strictFileNames = false;
-  var reader = new fd_slicer.BufferSlicer(buffer);
+  // limit the max chunk size. see https://github.com/thejoshwolfe/yauzl/issues/87
+  var reader = fd_slicer.createFromBuffer(buffer, {maxChunkSize: 0x10000});
   fromRandomAccessReader(reader, buffer.length, options, callback);
 }
 
