@@ -435,6 +435,7 @@ pend.go(function(cb) {
   var parametersToTest = {
     "examples/compareCentralAndLocalHeaders.js": zipfiles,
     "examples/dump.js": zipfiles,
+    "examples/promises.js": [null],
     "examples/unzip.js": zipfilesCanDecodeFileData,
   };
   if (JSON.stringify(fs.readdirSync(examplesDir).sort().map(s => `examples/${s}`)) !== JSON.stringify(Object.keys(parametersToTest).sort())) throw new Error("unexpected examples/ directory listing");
@@ -454,8 +455,13 @@ pend.go(function(cb) {
         stdio: ["ignore", "ignore", "inherit"],
         timeout: 10_000,
       };
-      args.push(path.resolve(arg));
-      var testId = `${script} ${path.basename(arg)}: `;
+      var testId;
+      if (arg != null) {
+        args.push(path.resolve(arg));
+        testId = `examples/${script} ${path.basename(arg)}: `;
+      } else {
+        testId = `examples/${script}: `;
+      }
 
       // Handle special cases.
       if (script === "examples/dump.js" && !canDecodeFileData(arg)) {
