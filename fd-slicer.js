@@ -18,7 +18,6 @@ function FdSlicer(fd) {
   this.pend = new Pend();
   this.pend.max = 1;
   this.refCount = 0;
-  this.refTokens = {};
 }
 
 FdSlicer.prototype.read = function(buffer, offset, length, position, callback) {
@@ -35,26 +34,15 @@ FdSlicer.prototype.createReadStream = function(options) {
   return new ReadStream(this, options);
 };
 
-FdSlicer.prototype.ref = function(token) {
-  if (token != null) {
-    if (this.refTokens[token] != null) throw new Error("duplicate ref token: " + token);
-    this.refTokens[token] = 1;
-  } else {
-    this.refCount += 1;
-  }
+FdSlicer.prototype.ref = function() {
+  this.refCount += 1;
 };
 
-FdSlicer.prototype.unref = function(token) {
+FdSlicer.prototype.unref = function() {
   var self = this;
-  if (token != null) {
-    if (self.refTokens[token] == null) throw new Error("invalid unref token: " + token);
-    delete self.refTokens[token];
-  } else {
-    self.refCount -= 1;
-    if (self.refCount < 0) throw new Error("invalid unref");
-  }
-
-  if (self.refCount + Object.keys(self.refTokens).length > 0) return;
+  self.refCount -= 1;
+  if (self.refCount < 0) throw new Error("invalid unref");
+  if (self.refCount > 0) return;
 
   fs.close(self.fd, onCloseDone);
 
@@ -73,8 +61,7 @@ function ReadStream(context, options) {
   Readable.call(this, options);
 
   this.context = context;
-  this.token = "ReadStream." + Math.random();
-  this.context.ref(this.token);
+  this.context.ref();
 
   this.start = options.start || 0;
   this.endOffset = options.end;
@@ -118,7 +105,7 @@ ReadStream.prototype._destroy = function(err, cb) {
 
 ReadStream.prototype._cleanup = function() {
   if (this.context != null) {
-    this.context.unref(this.token);
+    this.context.unref();
     this.context = null;
   }
 };

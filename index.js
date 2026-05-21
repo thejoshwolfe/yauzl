@@ -95,7 +95,7 @@ function fromRandomAccessReader(reader, totalSize, options, callback) {
   }
 
   // the matching unref() call is in zipfile.close()
-  reader.ref("ZipFile");
+  reader.ref();
 
   // eocdr means End of Central Directory Record.
   // search backwards for the eocdr signature.
@@ -221,7 +221,7 @@ function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, 
 ZipFile.prototype.close = function() {
   if (!this.isOpen) return;
   this.isOpen = false;
-  this.reader.unref("ZipFile");
+  this.reader.unref();
 };
 
 function emitErrorAndAutoClose(self, err) {
