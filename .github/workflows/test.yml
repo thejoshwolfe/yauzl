@@ -18,7 +18,6 @@ jobs:
         - 20
         - 24
         - 26
-        - 26.1
 
     runs-on: ubuntu-latest
     steps:

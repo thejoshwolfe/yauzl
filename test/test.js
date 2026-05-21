@@ -401,21 +401,25 @@ pend.go(rangeTest.runTest);
 pend.go(function(cb) {
   var examplesDir = path.join(__dirname, "../examples");
   var zipfiles = listZipFiles([path.join(__dirname, "success")]);
+  function canDecodeFileData(filePath) {
+    return !/traditional-encryption|bogus-compression-method/.exec(path.basename(filePath));
+  }
+  var zipfilesCanDecodeFileData = zipfiles.filter(canDecodeFileData);
   var tmpDir = path.join(__dirname, ".tmp");
   if (typeof fs.rmSync === "function") fs.rmSync(tmpDir, {recursive: true, force: true});
 
   var parametersToTest = {
-    "compareCentralAndLocalHeaders.js": zipfiles,
-    "dump.js": zipfiles,
-    "unzip.js": zipfiles,
-    "forAwait.js": zipfiles,
+    "examples/compareCentralAndLocalHeaders.js": zipfiles,
+    "examples/dump.js": zipfiles,
+    "examples/unzip.js": zipfilesCanDecodeFileData,
   };
-  if (JSON.stringify(fs.readdirSync(examplesDir).sort()) !== JSON.stringify(Object.keys(parametersToTest).sort())) throw new Error("unexpected examples/ directory listing");
-  for (var f in parametersToTest) {
-    var args = parametersToTest[f];
-    var script = path.join(examplesDir, f);
+  if (JSON.stringify(fs.readdirSync(examplesDir).sort().map(s => `examples/${s}`)) !== JSON.stringify(Object.keys(parametersToTest).sort())) throw new Error("unexpected examples/ directory listing");
+  parametersToTest["test/forAwait.js"] = zipfilesCanDecodeFileData
 
-    if (f === "unzip.js" && typeof fs.rmSync !== "function") {
+  for (var script in parametersToTest) {
+    var args = parametersToTest[script];
+
+    if (script === "examples/unzip.js" && typeof fs.rmSync !== "function") {
       console.log("WARNING: skipping examples/unzip.js tests for node <14");
       continue;
     }
@@ -427,20 +431,16 @@ pend.go(function(cb) {
         timeout: 10_000,
       };
       args.push(path.resolve(arg));
-      var testId = `examples/${f} ${path.basename(arg)}: `;
+      var testId = `${script} ${path.basename(arg)}: `;
 
       // Handle special cases.
-      if (f === "dump.js" && /traditional-encryption|bogus-compression-method/.exec(path.basename(arg))) {
+      if (script === "examples/dump.js" && !canDecodeFileData(arg)) {
         args.push("--no-contents");
       }
-      if (f === "unzip.js") {
-        if (/traditional-encryption|bogus-compression-method/.exec(path.basename(arg))) return; // Can't do these.
+      if (script === "examples/unzip.js") {
         // Quaranetine this in a temp directory.
         fs.mkdirSync(tmpDir);
         options.cwd = tmpDir;
-      }
-      if (f === "forAwait.js") {
-        if (/traditional-encryption|bogus-compression-method/.exec(path.basename(arg))) return; // Can't do these.
       }
 
       process.stdout.write(testId);
@@ -448,7 +448,7 @@ pend.go(function(cb) {
       if (status) error = new Error("child process return exit code " + status);
       if (error) throw error;
 
-      if (f === "unzip.js") {
+      if (script === "examples/unzip.js") {
         // Quaranetine this in a temp directory.
         fs.rmSync(tmpDir, {recursive: true, force: true});
       }

@@ -1,6 +1,5 @@
 // This example demonstrates using for-await on the readStream you get from openReadStream().
-// This caused a bug on node 26.1, so it doesn't really make sense to include in the examples/ directory,
-// but I haven't moved it out of here yet.
+// This caused a bug that was fixed after yauzl 3.3.0.
 var yauzl = require("../");
 var fs = require("fs");
 var path = require("path");

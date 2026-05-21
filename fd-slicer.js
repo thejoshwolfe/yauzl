@@ -39,7 +39,6 @@ FdSlicer.prototype.ref = function(token) {
   if (token != null) {
     if (this.refTokens[token] != null) throw new Error("duplicate ref token: " + token);
     this.refTokens[token] = 1;
-    console.log("ref:", token);
   } else {
     this.refCount += 1;
   }
@@ -50,7 +49,6 @@ FdSlicer.prototype.unref = function(token) {
   if (token != null) {
     if (self.refTokens[token] == null) throw new Error("invalid unref token: " + token);
     delete self.refTokens[token];
-    console.log("unref:", token);
   } else {
     self.refCount -= 1;
     if (self.refCount < 0) throw new Error("invalid unref");
@@ -91,7 +89,6 @@ ReadStream.prototype._read = function(n) {
     toRead = Math.min(toRead, self.endOffset - self.pos);
   }
   if (toRead <= 0) {
-    console.log("artificial EOF");
     self.push(null);
     this._cleanup();
     return;
@@ -102,7 +99,6 @@ ReadStream.prototype._read = function(n) {
       if (err) {
         self.destroy(err);
       } else if (bytesRead === 0) {
-        console.log("natural EOF");
         self.push(null);
         this._cleanup();
       } else {
