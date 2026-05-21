@@ -772,6 +772,8 @@ The zip file specification has several ambiguities inherent in its design. Yikes
 
 ## Change History
 
+ * 3.3.1
+   * Fixed bugs related to interrupting streams with `destroy()` and with async iteration on read streams. [issue #169](https://github.com/thejoshwolfe/yauzl/issues/169) [pull #170](https://github.com/thejoshwolfe/yauzl/pull/170)
  * 3.3.0
    * Added `entry.canDecodeFileData()` and option `decodeFileData` for `entry.openReadStream()`, and marked as deprecated `isCompressed()` and options `decompress` and `decrypt`. [issue #80](https://github.com/thejoshwolfe/yauzl/issues/80) [pull #81](https://github.com/thejoshwolfe/yauzl/pull/81) [pull #82](https://github.com/thejoshwolfe/yauzl/pull/82) [issue #166](https://github.com/thejoshwolfe/yauzl/issues/166)
  * 3.2.1
