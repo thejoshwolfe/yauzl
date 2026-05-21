@@ -1,13 +1,12 @@
-// This example demonstrates using for-await on the readStream you get from openReadStream().
-// This caused a bug that was fixed after yauzl 3.3.0.
-var yauzl = require("../");
-var fs = require("fs");
-var path = require("path");
+// Test for this bug: https://github.com/thejoshwolfe/yauzl/issues/169
+const yauzl = require("../");
+const fs = require("fs");
+const path = require("path");
 
 const paths = process.argv.slice(2);
 if (paths.length === 0) throw new Error("give a path to a zipfile as an arg");
 
-var done = false;
+let done = false;
 
 yauzl.open(paths[0], {lazyEntries: true}, function(err, zipfile) {
   if (err) throw err;
@@ -22,7 +21,7 @@ yauzl.open(paths[0], {lazyEntries: true}, function(err, zipfile) {
     zipfile.openReadStream(entry, function(err, readStream) {
       if (err) throw err;
       (async function() {
-        var bytesSeen = 0;
+        let bytesSeen = 0;
         console.log("starting...");
         for await (let chunk of readStream) {
           if (bytesSeen === 0) console.log("  ...iterating");

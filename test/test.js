@@ -341,12 +341,28 @@ pend.go(function(cb) {
   });
 });
 
-// abort open read stream
-pend.go(function(cb) {
-  var prefix = "abort open read stream: ";
-  yauzl.open(path.join(__dirname, "big-compression.zip"), {lazyEntries: true}, function(err, zipfile) {
-    if (err) throw err;
+// Abort open read stream with several combinations of stream pipelines.
+// The destroy logic depends on whether there's an inflater, a byte counter, etc.
+["big-compression.zip", "big-uncompressed.zip"].forEach(input => {
+  [{}, {validateEntrySizes: false}].forEach((options, i) => {
+    pend.go(function(cb) {
+      yauzl.open(path.join(__dirname, input), {lazyEntries: true, ...options}, function(err, zipfile) {
+        if (err) throw err;
+        const prefix = `destroy: ${input}: open(${i}): `;
+        testTheFile(prefix, zipfile, true, cb);
+      });
+    });
+    pend.go(function(cb) {
+      yauzl.fromBuffer(fs.readFileSync(path.join(__dirname, input)), {lazyEntries: true, ...options}, function(err, zipfile) {
+        if (err) throw err;
+        const prefix = `destroy: ${input}: fromBuffer(${i}): `;
+        testTheFile(prefix, zipfile, false, cb);
+      });
+    });
+  });
 
+  function testTheFile(prefix, zipfile, canClose, cb) {
+    console.log(prefix + "start");
     var doneWithStream = false;
 
     zipfile.readEntry();
@@ -375,20 +391,27 @@ pend.go(function(cb) {
     });
     zipfile.on("end", function() {
       console.log(prefix + "end");
+      if (!canClose) {
+        // fromBuffer never emits "close".
+        cleanup();
+      }
     });
     zipfile.on("close", function() {
       console.log(prefix + "closed");
+      cleanup();
+    });
+    function cleanup() {
       if (doneWithStream) {
         console.log(prefix + "pass");
         cb();
       } else {
         throw new Error(prefix + "closed prematurely");
       }
-    });
+    }
     zipfile.on("error", function(err) {
       throw err;
     });
-  });
+  }
 });
 
 // zip64
