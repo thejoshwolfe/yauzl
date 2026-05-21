@@ -344,16 +344,17 @@ pend.go(function(cb) {
 // Abort open read stream with several combinations of stream pipelines.
 // The destroy logic depends on whether there's an inflater, a byte counter, etc.
 ["big-compression.zip", "big-uncompressed.zip"].forEach(input => {
+  const inputPath = path.join(__dirname, "success", input);
   [{}, {validateEntrySizes: false}].forEach((options, i) => {
     pend.go(function(cb) {
-      yauzl.open(path.join(__dirname, input), {lazyEntries: true, ...options}, function(err, zipfile) {
+      yauzl.open(inputPath, {lazyEntries: true, ...options}, function(err, zipfile) {
         if (err) throw err;
         const prefix = `destroy: ${input}: open(${i}): `;
         testTheFile(prefix, zipfile, true, cb);
       });
     });
     pend.go(function(cb) {
-      yauzl.fromBuffer(fs.readFileSync(path.join(__dirname, input)), {lazyEntries: true, ...options}, function(err, zipfile) {
+      yauzl.fromBuffer(fs.readFileSync(inputPath), {lazyEntries: true, ...options}, function(err, zipfile) {
         if (err) throw err;
         const prefix = `destroy: ${input}: fromBuffer(${i}): `;
         testTheFile(prefix, zipfile, false, cb);
