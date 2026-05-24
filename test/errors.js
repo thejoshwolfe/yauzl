@@ -9,6 +9,19 @@ const stream = require("stream");
 
 exports.runTest = runTest;
 
+let ArrayFromAsync = Array.fromAsync;
+if (typeof ArrayFromAsync !== "function") {
+  ArrayFromAsync = async function(items) {
+    // This is not a general-purpose polyfill.
+    // It just does enough for what we want here.
+    const result = [];
+    for await (let item of items) {
+      result.push(item);
+    }
+    return result;
+  };
+}
+
 class EventuallyFailRandomAccessReader extends yauzl.RandomAccessReader {
   constructor(successCount, buffer) {
     super();
@@ -138,7 +151,7 @@ async function testErrorsWithPromisesGreedy(buffer) {
       const zipfile = await yauzl.fromRandomAccessReaderPromise(reader, buffer.length, {autoClose: false});
       try {
         // All entries are read first, then all read streams are opened afterward.
-        const entries = await Array.fromAsync(zipfile.eachEntry());
+        const entries = await ArrayFromAsync(zipfile.eachEntry());
         for (let entry of entries) {
           const readStream = await zipfile.openReadStreamPromise(entry);
           for await (let chunk of readStream) {
