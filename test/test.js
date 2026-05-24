@@ -1,6 +1,7 @@
 var yauzl = require("../");
 var zip64 = require("./zip64");
 var rangeTest = require("./range-test");
+var errorsTest = require("./errors");
 var fs = require("fs");
 var path = require("path");
 var Pend = require("pend");
@@ -87,6 +88,13 @@ listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry
           fs.readdirSync(realPath).forEach(function(child) {
             recursiveRead(path.join(name, child));
           });
+          if (name === "a/b" && path.basename(zipfilePath) === "everything.zip") {
+            // Insert 1000 expected files here that we don't want to waste git's time with.
+            const emptyBuffer = Buffer.from([]);
+            for (let i = 0; i < 1000; i++) {
+              expectedArchiveContents["a/b/" + i.toString().padStart(3, "0")] = emptyBuffer;
+            }
+          }
         }
       }
       pend.go(function(zipfileCallback) {
@@ -176,7 +184,14 @@ listZipFiles([path.join(__dirname, "success"), path.join(__dirname, "wrong-entry
                   if (!equal) {
                     throw new Error(messagePrefix + "wrong contents");
                   }
-                  console.log(messagePrefix + "pass");
+                  if (/^a\/b\/\d{3}$/.test(fileName)) {
+                    // There are 1000 of these.
+                    if (fileName === "a/b/000") {
+                      console.log(messagePrefix + "pass (and not printing for the next 999)");
+                    }
+                  } else {
+                    console.log(messagePrefix + "pass");
+                  }
                   zipfile.readEntry();
                 });
                 readStream.on("error", function(err) {
@@ -427,7 +442,10 @@ pend.go(zip64.runTest);
 // openReadStream with range
 pend.go(rangeTest.runTest);
 
-// Make sure the examples run with crashing.
+// Test error propagation.
+pend.go(errorsTest.runTest);
+
+// Make sure the examples run without crashing.
 pend.go(function(cb) {
   var examplesDir = path.join(__dirname, "../examples");
   var zipfiles = listZipFiles([path.join(__dirname, "success")]);
@@ -441,10 +459,11 @@ pend.go(function(cb) {
   var parametersToTest = {
     "examples/compareCentralAndLocalHeaders.js": zipfiles,
     "examples/dump.js": zipfiles,
-    "examples/promises.js": [null],
+    "examples/promises.js": zipfiles,
     "examples/unzip.js": zipfilesCanDecodeFileData,
   };
   if (JSON.stringify(fs.readdirSync(examplesDir).sort().map(s => `examples/${s}`)) !== JSON.stringify(Object.keys(parametersToTest).sort())) throw new Error("unexpected examples/ directory listing");
+  // Test this one too, but it's not an example.
   parametersToTest["test/forAwait.js"] = zipfilesCanDecodeFileData
 
   for (var script in parametersToTest) {
@@ -472,6 +491,9 @@ pend.go(function(cb) {
       // Handle special cases.
       if (script === "examples/dump.js" && !canDecodeFileData(arg)) {
         args.push("--no-contents");
+      }
+      if (script === "examples/promises.js" && !canDecodeFileData(arg)) {
+        args.push("--no-readStream");
       }
       if (script === "examples/unzip.js") {
         // Quaranetine this in a temp directory.

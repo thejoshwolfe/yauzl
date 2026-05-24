@@ -14,6 +14,11 @@ exports.open = open;
 exports.fromFd = fromFd;
 exports.fromBuffer = fromBuffer;
 exports.fromRandomAccessReader = fromRandomAccessReader;
+exports.openPromise = openPromise;
+exports.fromFdPromise = fromFdPromise;
+exports.fromBufferPromise = fromBufferPromise;
+exports.fromRandomAccessReaderPromise = fromRandomAccessReaderPromise;
+
 exports.dosDateTimeToDate = dosDateTimeToDate;
 exports.getFileNameLowLevel = getFileNameLowLevel;
 exports.validateFileName = validateFileName;
@@ -22,6 +27,39 @@ exports.ZipFile = ZipFile;
 exports.Entry = Entry;
 exports.LocalFileHeader = LocalFileHeader;
 exports.RandomAccessReader = RandomAccessReader;
+
+function openPromise(path, options) {
+  return new Promise((resolve, reject) => {
+    open(path, {...options, lazyEntries: true}, function(err, zipfile) {
+      if (err) return reject(err);
+      resolve(zipfile);
+    });
+  });
+}
+function fromFdPromise(fd, options) {
+  return new Promise((resolve, reject) => {
+    fromFd(fd, {...options, lazyEntries: true}, function(err, zipfile) {
+      if (err) return reject(err);
+      resolve(zipfile);
+    });
+  });
+}
+function fromBufferPromise(buffer, options) {
+  return new Promise((resolve, reject) => {
+    fromBuffer(buffer, {...options, lazyEntries: true}, function(err, zipfile) {
+      if (err) return reject(err);
+      resolve(zipfile);
+    });
+  });
+}
+function fromRandomAccessReaderPromise(reader, totalSize, options) {
+  return new Promise((resolve, reject) => {
+    fromRandomAccessReader(reader, totalSize, {...options, lazyEntries: true}, function(err, zipfile) {
+      if (err) return reject(err);
+      resolve(zipfile);
+    });
+  });
+}
 
 function open(path, options, callback) {
   if (typeof options === "function") {
@@ -217,6 +255,7 @@ function ZipFile(reader, centralDirectoryOffset, fileSize, entryCount, comment, 
   self.strictFileNames = !!strictFileNames;
   self.isOpen = true;
   self.emittedError = false;
+  self.hasEachEntryBeenCalled = false;
 
   if (!self.lazyEntries) self._readEntry();
 }
@@ -387,6 +426,68 @@ ZipFile.prototype._readEntry = function() {
       if (!self.lazyEntries) self._readEntry();
     });
   });
+};
+
+ZipFile.prototype.eachEntry = function() {
+  const self = this;
+  if (!self.lazyEntries) throw new Error("eachEntry() requires lazyEntries: true");
+  if (self.hasEachEntryBeenCalled) throw new Error("eachEntry() must only be called once per ZipFile");
+  self.hasEachEntryBeenCalled = true;
+
+  let pendingResolveReject = null;
+  self.on("entry", onEntry);
+  self.on("end", onEnd);
+  self.on("error", onError);
+  function cleanup() {
+    self.removeListener("entry", onEntry);
+    self.removeListener("end", onEnd);
+    self.removeListener("error", onError);
+    if (self.autoClose) self.close();
+  }
+
+  function onEntry(entry) {
+    let {resolve} = pendingResolveReject;
+    pendingResolveReject = null;
+    resolve({value: entry});
+  }
+  function onEnd() {
+    let {resolve} = pendingResolveReject;
+    pendingResolveReject = null;
+    cleanup();
+    resolve({done: true});
+  }
+  function onError(err) {
+    let {reject} = pendingResolveReject;
+    pendingResolveReject = null;
+    cleanup();
+    reject(err);
+  }
+
+  return {
+    [Symbol.asyncIterator]() {
+      // Called once by `for await...of`.
+      return this;
+    },
+    next() {
+      // Called on each iteration in a `for await...of`.
+      const promise = new Promise((resolve, reject) => {
+        if (pendingResolveReject != null) throw new Error("next() called before previous Promise was resolved.");
+        pendingResolveReject = {resolve, reject};
+      });
+      self.readEntry();
+      return promise;
+    },
+    return(value) {
+      // Called when breaking, returning, throwing out of a `for await...of`.
+      cleanup();
+      return Promise.resolve({done: true, value});
+    },
+    throw(value) {
+      // Almost never called. Something about `yield*` maybe?
+      cleanup();
+      return Promise.reject(value);
+    },
+  };
 };
 
 ZipFile.prototype.openReadStream = function(entry, options, callback) {
@@ -604,6 +705,31 @@ ZipFile.prototype.readLocalFileHeader = function(entry, options, callback) {
     } finally {
       self.reader.unref();
     }
+  });
+};
+
+ZipFile.prototype.openReadStreamPromise = function(entry, options) {
+  return new Promise((resolve, reject) => {
+    this.openReadStream(entry, options, function(err, readStream) {
+      if (err) return reject(err);
+      resolve(readStream);
+    });
+  });
+};
+ZipFile.prototype.openReadStreamLowLevelPromise = function(fileDataStart, compressedSize, relativeStart, relativeEnd, decompress, uncompressedSize) {
+  return new Promise((resolve, reject) => {
+    this.openReadStream(fileDataStart, compressedSize, relativeStart, relativeEnd, decompress, uncompressedSize, function(err, readStream) {
+      if (err) return reject(err);
+      resolve(readStream);
+    });
+  });
+};
+ZipFile.prototype.readLocalFileHeaderPromise = function(entry, options) {
+  return new Promise((resolve, reject) => {
+    this.readLocalFileHeader(entry, options, function(err, localFileHeader) {
+      if (err) return reject(err);
+      resolve(localFileHeader);
+    });
   });
 };
 
