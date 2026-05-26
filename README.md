@@ -912,7 +912,7 @@ The zip file specification has several ambiguities inherent in its design. Yikes
 ## Change History
 
  * 3.4.0
-   * Add wrapper functions that give Promise semantics: `openPromise()`, `fromFdPromise()`, `fromBufferPromise()`, `fromRandomAccessReaderPromise()`, `openReadStreamPromise()`, `readLocalFileHeaderPromise()`, `openReadStreamLowLevelPromise()`.
+   * Add wrapper functions that give Promise semantics: `openPromise()`, `fromFdPromise()`, `fromBufferPromise()`, `fromRandomAccessReaderPromise()`, `openReadStreamPromise()`, `readLocalFileHeaderPromise()`, `openReadStreamLowLevelPromise()`. [pull #171](https://github.com/thejoshwolfe/yauzl/pull/171)
    * Add `eachEntry()`, which gives async iterator semantics as an alternative to `readEntry()`, `Event: "entry"`, `Event: "end"`, and `Event: "error"`.
    * Added more modern examples to `README.md` and `examples/` using `await` on the new APIs.
  * 3.3.2
