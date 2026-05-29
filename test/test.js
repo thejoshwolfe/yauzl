@@ -9,6 +9,12 @@ var child_process = require("child_process");
 var Readable = require("stream").Readable;
 var Writable = require("stream").Writable;
 
+if (require("../crc32")(Buffer.from("hello")) === 907060870) {
+  console.log("crc32: pass");
+} else {
+  throw new Error("crc32 wrong");
+}
+
 // This is a month before I made the example zip files and their content files,
 // so this timestamp will be earlier than all the ones stored in these test zip files unless otherwise noted.
 var earliestTimestamp = new Date(2014, 7, 18, 0, 0, 0, 0);

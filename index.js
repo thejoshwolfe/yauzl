@@ -1,12 +1,14 @@
 var fs = require("fs");
 var zlib = require("zlib");
 var fd_slicer = require("./fd-slicer");
-var crc32 = require("buffer-crc32");
 var util = require("util");
 var EventEmitter = require("events").EventEmitter;
 var Transform = require("stream").Transform;
 var PassThrough = require("stream").PassThrough;
 var Writable = require("stream").Writable;
+
+// Node 20 added zlib.crc32.
+const crc32 = typeof zlib.crc32 === "function" ? zlib.crc32 : require("./crc32");
 
 exports.open = open;
 exports.fromFd = fromFd;
@@ -716,7 +718,7 @@ function getFileNameLowLevel(generalPurposeBitFlag, fileNameBuffer, extraFields,
       }
       // NameCRC32     4 bytes     File Name Field CRC32 Checksum
       var oldNameCrc32 = extraField.data.readUInt32LE(1);
-      if (crc32.unsigned(fileNameBuffer) !== oldNameCrc32) {
+      if (crc32(fileNameBuffer) !== oldNameCrc32) {
         // > If the CRC check fails, this UTF-8 Path Extra Field should be
         // > ignored and the File Name field in the header should be used instead.
         continue;
