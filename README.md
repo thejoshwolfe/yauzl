@@ -772,6 +772,9 @@ The zip file specification has several ambiguities inherent in its design. Yikes
 
 ## Change History
 
+ * 3.3.2
+   * Vendor and simplify `buffer-crc` dependency and prefer `zlib.crc32()` when available. [issue #172](https://github.com/thejoshwolfe/yauzl/issues/172) [pull #173](https://github.com/thejoshwolfe/yauzl/pull/173)
+   * Fixed typo in error handling for obscure IO errors. Raised in [issue #174](https://github.com/thejoshwolfe/yauzl/issues/174).
  * 3.3.1
    * Fixed bugs related to interrupting streams with `destroy()` and with async iteration on read streams. [issue #169](https://github.com/thejoshwolfe/yauzl/issues/169) [pull #170](https://github.com/thejoshwolfe/yauzl/pull/170)
  * 3.3.0
