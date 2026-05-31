@@ -87,7 +87,7 @@ ReadStream.prototype._read = function(n) {
         self.destroy(err);
       } else if (bytesRead === 0) {
         self.push(null);
-        this._cleanup();
+        self._cleanup();
       } else {
         self.pos += bytesRead;
         self.push(buffer.slice(0, bytesRead));
