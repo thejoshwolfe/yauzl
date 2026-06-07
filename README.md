@@ -915,6 +915,7 @@ The zip file specification has several ambiguities inherent in its design. Yikes
    * Add wrapper functions that give Promise semantics: `openPromise()`, `fromFdPromise()`, `fromBufferPromise()`, `fromRandomAccessReaderPromise()`, `openReadStreamPromise()`, `readLocalFileHeaderPromise()`, `openReadStreamLowLevelPromise()`. [pull #171](https://github.com/thejoshwolfe/yauzl/pull/171)
    * Add `eachEntry()`, which gives async iterator semantics as an alternative to `readEntry()`, `Event: "entry"`, `Event: "end"`, and `Event: "error"`.
    * Added more modern examples to `README.md` and `examples/` using `await` on the new APIs.
+   * Added a `CONTRIBUTING.md`.
  * 3.3.2
    * Vendor and simplify `buffer-crc` dependency and prefer `zlib.crc32()` when available. [issue #172](https://github.com/thejoshwolfe/yauzl/issues/172) [pull #173](https://github.com/thejoshwolfe/yauzl/pull/173)
    * Fixed typo in error handling for obscure IO errors. Raised in [issue #174](https://github.com/thejoshwolfe/yauzl/issues/174).
