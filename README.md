@@ -20,6 +20,35 @@ Design principles:
 
 ## Usage
 
+Using `await`:
+
+```js
+const yauzl = require("yauzl");
+
+(async () => {
+  try {
+    const zipfile = await yauzl.openPromise("path/to/file.zip");
+    for await (let entry of zipfile.eachEntry()) {
+      if (entry.fileName.endsWith("/")) {
+        // Directory file names end with '/'.
+        // Note that entries for directories themselves are optional.
+        // An entry's fileName implicitly requires its parent directories to exist.
+        continue;
+      } else {
+        // file entry
+        const readStream = await zipfile.openReadStreamPromise(entry);
+        await stream.promises.pipeline(readStream, somewhere);
+      }
+    }
+  } catch (err) {
+    // Indicates a malformed zipfile or I/O error.
+    throw err;
+  }
+})();
+```
+
+Using callbacks:
+
 ```js
 var yauzl = require("yauzl");
 
@@ -27,10 +56,8 @@ yauzl.open("path/to/file.zip", {lazyEntries: true}, function(err, zipfile) {
   if (err) throw err;
   zipfile.readEntry();
   zipfile.on("entry", function(entry) {
-    if (/\/$/.test(entry.fileName)) {
-      // Directory file names end with '/'.
-      // Note that entries for directories themselves are optional.
-      // An entry's fileName implicitly requires its parent directories to exist.
+    if (entry.fileName.endsWith("/")) {
+      // Ignore directory entry.
       zipfile.readEntry();
     } else {
       // file entry
@@ -61,6 +88,8 @@ function defaultCallback(err) {
 ### open(path, [options], [callback])
 
 Calls `fs.open(path, "r")` and reads the `fd` effectively the same as `fromFd()` would.
+
+See also `openPromise()` to get `Promise` semantics.
 
 `options` may be omitted or `null`. The defaults are `{autoClose: true, lazyEntries: false, decodeStrings: true, validateEntrySizes: true, strictFileNames: false}`.
 
@@ -114,6 +143,8 @@ Reads from the fd, which is presumed to be an open .zip file.
 Note that random access is required by the zip file specification,
 so the fd cannot be an open socket or any other fd that does not support random access.
 
+See also `fromFdPromise()` to get `Promise` semantics.
+
 `options` may be omitted or `null`. The defaults are `{autoClose: false, lazyEntries: false, decodeStrings: true, validateEntrySizes: true, strictFileNames: false}`.
 
 See `open()` for the meaning of the options and callback.
@@ -122,6 +153,8 @@ See `open()` for the meaning of the options and callback.
 
 Like `fromFd()`, but reads from a RAM buffer instead of an open file.
 `buffer` is a `Buffer`.
+
+See also `fromBufferPromise()` to get `Promise` semantics.
 
 If a `ZipFile` is acquired from this method,
 it will never emit the `close` event,
@@ -137,6 +170,8 @@ The `autoClose` option is ignored for this method.
 This method of reading a zip file allows clients to implement their own back-end file system.
 For example, a client might translate read calls into network requests.
 
+See also `fromRandomAccessReaderPromise()` to get `Promise` semantics.
+
 The `reader` parameter must be of a type that is a subclass of
 [RandomAccessReader](#class-randomaccessreader) that implements the required methods.
 The `totalSize` is a Number and indicates the total file size of the zip file.
@@ -144,6 +179,46 @@ The `totalSize` is a Number and indicates the total file size of the zip file.
 `options` may be omitted or `null`. The defaults are `{autoClose: true, lazyEntries: false, decodeStrings: true, validateEntrySizes: true, strictFileNames: false}`.
 
 See `open()` for the meaning of the options and callback.
+
+### openPromise(path, [options])
+
+Wraps `open()` with `Promise` semantics.
+The returned promise is rejected if the `callback` for `open()` receives an `err`,
+otherwise the promise is resolved with the `zipfile`.
+
+`options` may be omitted or `null`, and `path` and `options` are passed to `open()`.
+`options.lazyEntries` is always set to `true`, overriding any value you pass in.
+This is required for using `zipfile.eachEntry()`, which you probably also want to use.
+
+### fromFdPromise(fd, [options])
+
+Wraps `fromFd()` with `Promise` semantics.
+The returned promise is rejected if the `callback` for `fromFd()` receives an `err`,
+otherwise the promise is resolved with the `zipfile`.
+
+`options` may be omitted or `null`, and `fd` and `options` are passed to `fromFd()`.
+`options.lazyEntries` is always set to `true`, overriding any value you pass in.
+This is required for using `zipfile.eachEntry()`, which you probably also want to use.
+
+### fromBufferPromise(buffer, [options])
+
+Wraps `fromBuffer()` with `Promise` semantics.
+The returned promise is rejected if the `callback` for `fromBuffer()` receives an `err`,
+otherwise the promise is resolved with the `zipfile`.
+
+`options` may be omitted or `null`, and `buffer` and `options` are passed to `fromBuffer()`.
+`options.lazyEntries` is always set to `true`, overriding any value you pass in.
+This is required for using `zipfile.eachEntry()`, which you probably also want to use.
+
+### fromRandomAccessReaderPromise(reader, totalSize, [options])
+
+Wraps `fromRandomAccessReader()` with `Promise` semantics.
+The returned promise is rejected if the `callback` for `fromRandomAccessReader()` receives an `err`,
+otherwise the promise is resolved with the `zipfile`.
+
+`options` may be omitted or `null`, and `reader`, `totalSize`, and `options` are passed to `fromRandomAccessReader()`.
+`options.lazyEntries` is always set to `true`, overriding any value you pass in.
+This is required for using `zipfile.eachEntry()`, which you probably also want to use.
 
 ### dosDateTimeToDate(date, time)
 
@@ -213,6 +288,7 @@ Use `open()`, `fromFd()`, `fromBuffer()`, or `fromRandomAccessReader()` instead.
 
 Callback gets `(entry)`, which is an `Entry`.
 See `open()` and `readEntry()` for when this event is emitted.
+See also `eachEntry()` for an async iterator alternative to this event.
 
 If `decodeStrings` is `true`, entries emitted via this event have already passed file name validation.
 See `validateFileName()` and `open()` for more information.
@@ -225,6 +301,7 @@ See `open()` for more information.
 
 Emitted after the last `entry` event has been emitted.
 See `open()` and `readEntry()` for more info on when this event is emitted.
+See also `eachEntry()` for an async iterator alternative to this event.
 
 #### Event: "close"
 
@@ -244,12 +321,17 @@ Emitted in the case of errors with reading the zip file.
 After this event has been emitted, no further `entry`, `end`, or `error` events will be emitted,
 but the `close` event may still be emitted.
 
+See also `eachEntry()` for an async iterator alternative to this event.
+
 #### readEntry()
 
 Causes this `ZipFile` to emit an `entry` or `end` event (or an `error` event).
-This method must only be called when this `ZipFile` was created with the `lazyEntries` option set to `true` (see `open()`).
+This method must only be called when this `ZipFile` was created with the `lazyEntries` option set to `true` (see `open()`),
+and must not be called if you are using `eachEntry()`.
 When this `ZipFile` was created with the `lazyEntries` option set to `true`,
 `entry` and `end` events are only ever emitted in response to this method call.
+
+See also `eachEntry()` for an async iterator alternative to this method.
 
 The event that is emitted in response to this method will not be emitted until after this method has returned,
 so it is safe to call this method before attaching event listeners.
@@ -258,11 +340,43 @@ After calling this method, calling this method again before the response event h
 Calling this method after the `end` event has been emitted will cause undefined behavior.
 Calling this method after calling `close()` will cause undefined behavior.
 
+#### eachEntry()
+
+Returns an async iterable/iterator that yields each entry in this `ZipFile`.
+This allows using `for await (let entry of zipfile.eachEntry()) { ... }` to iterate through the `Entry` objects that would otherwise be emitted via `Event: "entry"`.
+
+The object returned from `eachEntry()` implements `next()`, `return()`, and `throw()` satisfying the async iterator API,
+and implements `[Symbol.asyncIterator]()`, which simply returns `this`, satisfying the async iterable API.
+
+`next()` returns a promise which is eventually either rejected with an error, or resolves to one of:
+* `{value: entry}` with the next `Entry`, analogous to `Event: "entry"`, or
+* `{done: true}` signaling the end of iteration, analogous to `Event: "end"`.
+
+You must abstain from calling `next()` again until the promise returned from the previous call to `next()` has resolved.
+This is how `for await...of` and `Array.fromAsync()` work.
+
+If `autoClose` is `true`, this `ZipFile` is closed at the end of iteration,
+or when iteration is interrupted by `return()`, which is called implicitly when exiting a `for await...of` loop with `break`, `return`, etc.
+If you want to still call `openReadStream()` after iteration has ended (such as when using `Array.fromAsync()` to collect entries all ahead of time),
+set `autoClose` to `false`, and call `close()` manually when you are done with the `ZipFile`.
+There is no supported way to resume iteration if it is interrupted with `return()`.
+
+Using `eachEntry()` is incompatible with older styles of accessing this `ZipFile`. If you use `eachEntry()`:
+* `lazyEntries` must be `true` (see `open()`). (Some APIs set this automatically for you.)
+* You must never call `readEntry()` on this `ZipFile`.
+* It is not recommend to listen for `Event: "entry"` or `Event: "end"`, because that information is fully provided by the async iterator instead.
+* It is not recommended to listen for `Event: "error"` on this `ZipFile`, but rather handle errors conveyed through the `Promise` API, such as with a `try...catch` block around the `for await...of` expression, or with the `catch()` method on each promise returned by `next()`, etc.
+* You must not call `eachEntry()` more than once. The iteration state is maintained in the `ZipFile` object itself, not in the iterator, and it is not possible to reset iteration to get the same `Entry` objects more than once.
+
+See `examples/promises.js` for an example using this method.
+
 #### openReadStream(entry, [options], callback)
 
 `entry` must be an `Entry` object from this `ZipFile`.
 `callback` gets `(err, readStream)`, where `readStream` is a `Readable Stream` that provides the file data for this entry.
 If this zipfile is already closed (see `close()`), the `callback` will receive an `err`.
+
+See also `openReadStreamPromise()` to get `Promise` semantics.
 
 `options` may be omitted or `null`, and has the following defaults:
 
@@ -346,6 +460,8 @@ where the type of the second parameter is described in the above discussion of t
 
 This is a low-level function available for advanced use cases. You probably want `openReadStream()` instead.
 
+See also `openReadStreamLowLevelPromise()` to get `Promise` semantics.
+
 The intended use case for this function is calling `readEntry()` and `readLocalFileHeader()` with `{minimal: true}` first,
 and then opening the read stream at a later time, possibly after closing and reopening the entire zipfile,
 possibly even in a different process.
@@ -364,6 +480,30 @@ This is both a performance feature and a safety hazard.
 None of the integer parameters are bounds checked.
 None of the validation from `openReadStream()` with respect to compression and encryption is done here either.
 Only the bounds checks from `validateEntrySizes` are done, because that is part of processing the stream data.
+
+#### openReadStreamPromise(entry, [options])
+
+Wraps `openReadStream()` with `Promise` semantics.
+The returned promise is rejected if the `callback` for `openReadStream()` receives an `err`,
+otherwise the promise is resolved with the `readStream`.
+
+`entry` and `options` are passed directly to `openReadStream()`.
+
+#### readLocalFileHeaderPromise(entry, [options])
+
+Wraps `readLocalFileHeader()` with `Promise` semantics.
+The returned promise is rejected if the `callback` for `readLocalFileHeader()` receives an `err`,
+otherwise the promise is resolved with the `readStream`.
+
+`entry` and `options` are passed directly to `readLocalFileHeader()`.
+
+#### openReadStreamLowLevelPromise(fileDataStart, compressedSize, relativeStart, relativeEnd, decompress, uncompressedSize)
+
+Wraps `openReadStreamLowLevel()` with `Promise` semantics.
+The returned promise is rejected if the `callback` for `openReadStreamLowLevel()` receives an `err`,
+otherwise the promise is resolved with the `readStream`.
+
+All arguments, `fileDataStart`, `compressedSize`, `relativeStart`, `relativeEnd`, `decompress`, and `uncompressedSize`, are passed directly to `openReadStreamLowLevel()`.
 
 #### close()
 
@@ -628,14 +768,13 @@ and no more `_readStreamForRange()` or `read()` requests will be issued to this 
 ## How to Avoid Crashing
 
 When a malformed zipfile is encountered, the default behavior is to crash (throw an exception).
-If you want to handle errors more gracefully than this,
-be sure to do the following:
+If you want to handle errors more gracefully than this, be sure to do the following:
 
- * Provide `callback` parameters where they are allowed, and check the `err` parameter.
- * Attach a listener for the `error` event on any `ZipFile` object you get from `open()`, `fromFd()`, `fromBuffer()`, or `fromRandomAccessReader()`.
- * Attach a listener for the `error` event on any stream you get from `openReadStream()`.
-
-Minor version updates to yauzl will not add any additional requirements to this list.
+ * When using an API with a `callback` parameter, check the `err` parameter.
+ * When using an API that returns a `Promise`, check for promise rejection.
+ * When accessing entries via `Event: "entry"` and `Event: "end"`, attach a listener for `Event: "error"` on the `ZipFile`.
+ * When accessing entires via `eachEntry()`, check for promise rejection on each returned promise. (When using `await` or `for await...of`, rejections will be thrown by those language constructs and must be caught with `try...catch`.)
+ * Read streams for entries (such as from `openReadStream()`) can produce errors. Either attach a listen for `Event: "error"` on the read stream, or handle the error some other way.
 
 ## Limitations
 
@@ -772,6 +911,10 @@ The zip file specification has several ambiguities inherent in its design. Yikes
 
 ## Change History
 
+ * 3.4.0
+   * Add wrapper functions that give Promise semantics: `openPromise()`, `fromFdPromise()`, `fromBufferPromise()`, `fromRandomAccessReaderPromise()`, `openReadStreamPromise()`, `readLocalFileHeaderPromise()`, `openReadStreamLowLevelPromise()`. [pull #171](https://github.com/thejoshwolfe/yauzl/pull/171)
+   * Add `eachEntry()`, which gives async iterator semantics as an alternative to `readEntry()`, `Event: "entry"`, `Event: "end"`, and `Event: "error"`.
+   * Added more modern examples to `README.md` and `examples/` using `await` on the new APIs.
  * 3.3.2
    * Vendor and simplify `buffer-crc` dependency and prefer `zlib.crc32()` when available. [issue #172](https://github.com/thejoshwolfe/yauzl/issues/172) [pull #173](https://github.com/thejoshwolfe/yauzl/pull/173)
    * Fixed typo in error handling for obscure IO errors. Raised in [issue #174](https://github.com/thejoshwolfe/yauzl/issues/174).

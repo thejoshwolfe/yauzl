@@ -1,54 +1,61 @@
-// yauzl does not provide a Promise API,
-// but yauzl's API follows the Node.js convention of
-// using (err, result) callbacks as the final parameter.
-// This lends itself cleanly to "promisifying" the API
-// as shown in this example.
-//
-// This example requires V8 version 5.5+ (Node version 7.6+).
-// While async/await is still experimental, you also need
-// to run this example with --harmony-async-await
+const yauzl = require("../"); // replace with: const yauzl = require("yauzl");
 
-let yauzl = require("../"); // replace with: let yauzl = require("yauzl");
+// Parse CLI args.
+const paths = [];
+let dumpContents = true;
+let shouldReadStream = true;
+process.argv.slice(2).forEach(function(arg) {
+  if (arg === "--no-contents") {
+    dumpContents = false;
+  } else if (arg === "--no-readStream") {
+    shouldReadStream = false;
+  } else {
+    paths.push(arg);
+  }
+});
 
-let simpleZipBuffer = Buffer.from([
-  80,75,3,4,20,0,8,8,0,0,134,96,146,74,0,0,
-  0,0,0,0,0,0,0,0,0,0,5,0,0,0,97,46,116,120,
-  116,104,101,108,108,111,10,80,75,7,8,32,
-  48,58,54,6,0,0,0,6,0,0,0,80,75,1,2,63,3,
-  20,0,8,8,0,0,134,96,146,74,32,48,58,54,6,
-  0,0,0,6,0,0,0,5,0,0,0,0,0,0,0,0,0,0,0,180,
-  129,0,0,0,0,97,46,116,120,116,80,75,5,6,0,
-  0,0,0,1,0,1,0,51,0,0,0,57,0,0,0,0,0
-]);
-
-function promisify(api) {
-  return function(...args) {
-    return new Promise(function(resolve, reject) {
-      api(...args, function(err, response) {
-        if (err) return reject(err);
-        resolve(response);
-      });
-    });
-  };
-}
-
-let yauzlFromBuffer = promisify(yauzl.fromBuffer);
-
+// Read each arg .zip and dump its contents to stdout.
 (async () => {
-  let zipfile = await yauzlFromBuffer(simpleZipBuffer, {lazyEntries: true});
-  console.log("number of entries:", zipfile.entryCount);
-  let openReadStream = promisify(zipfile.openReadStream.bind(zipfile));
-  zipfile.readEntry();
-  zipfile.on("entry", async (entry) => {
-    console.log("found entry:", entry.fileName);
-    let stream = await openReadStream(entry);
-    stream.on("end", () => {
-      console.log("<EOF>");
-      zipfile.readEntry();
-    });
-    stream.pipe(process.stdout);
-  });
-  zipfile.on("end", () => {
-    console.log("end of entries");
-  });
+  for (let path of paths) {
+    try {
+      const zipfile = await yauzl.openPromise(path);
+      for await (let entry of zipfile.eachEntry()) {
+        console.log(entry);
+        if (!shouldReadStream || entry.fileName.endsWith("/")) continue;
+
+        const readStream = await zipfile.openReadStreamPromise(entry);
+        // You should just use readStream.pipe(process.stdout) if you don't care about individual chunks.
+        // This example demonstrates detailed involvement in the piping process.
+        let chunksSeen = 0;
+        for await (let chunk of readStream) {
+          console.log("seeing chunk:", chunksSeen);
+          chunksSeen++;
+          if (chunksSeen === 10) {
+            console.log("interrupting the read stream");
+            readStream.destroy();
+            break;
+          }
+          if (dumpContents) {
+            await writeToStream(process.stdout, chunk);
+          }
+        }
+        console.log(`readStream completed in ${chunksSeen} chunks`);
+      }
+    } catch (err) {
+      // yauzl errors get thrown by `await` expressions and end up here.
+      throw err;
+    }
+  }
 })();
+
+function writeToStream(stream, chunk) {
+  // As of 2023, you have to write this function in your own code.
+  // https://github.com/nodejs/node/issues/49658
+  return new Promise(resolve => {
+    if (!stream.write(chunk)) {
+      stream.once('drain', resolve);
+    } else {
+      resolve();
+    }
+  });
+}
